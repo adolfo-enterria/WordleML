@@ -1,0 +1,101 @@
+"""What the agent sees each turn.
+
+The agent knows the rules. From the colored feedback it works out which words
+could still be the answer (green = right letter, right spot; yellow = in the
+word, but not in that spot; grey = not in the word) and only guesses those.
+
+Which possible word to guess is what it has to learn. For each one it computes
+a few plain facts, e.g. "has 5 different letters" or "its letters are common
+among the words still possible". The facts never say whether that's good or
+bad: the agent starts with all weights at zero and learns which facts matter.
+"""
+import numpy as np
+
+from wordle.game import GREEN, GREY
+from wordle.words import encode
+
+FEATURE_NAMES = [
+    "distinct_letters",    # how many different letters the word has (1-5)
+    "possible_letters",    # how common its letters are among the words still possible
+    "possible_positions",  # ...and how common they are in those exact spots
+]
+N_FEATURES = len(FEATURE_NAMES)
+
+
+class Knowledge:
+    """Everything the feedback so far tells us, in array form."""
+
+    def __init__(self, history):
+        self.green = np.full(5, -1)                   # letter index known at each spot, or -1
+        self.wrong_spot = np.zeros((5, 26), bool)     # letter known NOT to be at this spot
+        self.min_count = np.zeros(26, int)            # the answer has at least this many
+        self.max_count = np.full(26, 5)               # ...and at most this many
+
+        for guess, feedback in history:
+            letters = [ord(c) - ord("a") for c in guess]
+            marked = np.zeros(26, int)  # green+yellow tiles per letter in this guess
+            for pos, (letter, state) in enumerate(zip(letters, feedback)):
+                if state == GREEN:
+                    self.green[pos] = letter
+                else:
+                    self.wrong_spot[pos, letter] = True
+                if state != GREY:
+                    marked[letter] += 1
+            self.min_count = np.maximum(self.min_count, marked)
+            for letter, state in zip(letters, feedback):
+                if state == GREY:  # a grey tile caps the count at what was marked
+                    self.max_count[letter] = min(self.max_count[letter], marked[letter])
+
+
+class Featurizer:
+    def __init__(self, words):
+        self.words = list(words)
+        self.letters, self.counts = encode(self.words)
+        self.has_letter = self.counts > 0
+        self.distinct = self.has_letter.sum(axis=1)
+        self._first_turn = self._compute([])  # turn 1 never changes, so cache it
+
+    def possible(self, history):
+        """Boolean mask over the word list: which words could still be the answer.
+
+        This is the rules of Wordle: a word is possible if it keeps every green,
+        includes every yellow (somewhere else) and avoids every grey letter.
+        """
+        return self._possible(Knowledge(history))
+
+    def _possible(self, k):
+        # Only look at the letters the feedback actually says something about (fast).
+        known = np.flatnonzero(k.green >= 0)
+        present = np.flatnonzero(k.min_count > 0)
+        capped = np.flatnonzero(k.max_count < 5)
+
+        greens_moved = (self.letters[:, known] != k.green[known]).sum(axis=1)
+        wrong_spot = k.wrong_spot.copy()
+        wrong_spot[:, np.flatnonzero(k.min_count == 0)] = False  # absent letters count as grey
+        yellow_same_spot = wrong_spot[np.arange(5), self.letters].sum(axis=1)
+        left_out = np.maximum(k.min_count[present] - self.counts[:, present], 0).sum(axis=1)
+        grey = np.maximum(self.counts[:, capped] - k.max_count[capped], 0).sum(axis=1)
+        return (greens_moved + yellow_same_spot + left_out + grey) == 0
+
+    def features(self, history):
+        """Return (candidates, facts): indices of the still-possible words, and
+        a len(candidates) x N_FEATURES matrix with one row of facts per word."""
+        if not history:
+            return self._first_turn
+        return self._compute(history)
+
+    def _commonness(self, subset):
+        """How common each word's letters are among `subset`, overall and by spot."""
+        letter_share = self.has_letter[subset].mean(axis=0)
+        position_share = np.stack([np.bincount(self.letters[subset, p], minlength=26) / len(subset)
+                                   for p in range(5)])
+        letters_score = self.has_letter @ letter_share
+        positions_score = position_share[np.arange(5), self.letters].sum(axis=1)
+        return letters_score, positions_score
+
+    def _compute(self, history):
+        k = Knowledge(history)
+        candidates = np.flatnonzero(self._possible(k))
+        possible_letters, possible_positions = self._commonness(candidates)
+        facts = np.column_stack([self.distinct, possible_letters, possible_positions]).astype(float)
+        return candidates, facts[candidates]

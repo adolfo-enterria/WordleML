@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WordleML live training</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>WordleML <span class="muted">live training</span></h1>
+      <span id="status" class="status" data-status="connecting">Connecting…</span>
+    </header>
+
+    <section class="controls" aria-label="Controls">
+      <button id="pause" type="button">Pause</button>
+      <button id="continue" type="button">Continue</button>
+      <button id="reset" type="button">Reset</button>
+      <label class="speed">
+        Speed
+        <input id="speed" type="range" min="0" max="7" step="1">
+        <output id="speed-label"></output>
+      </label>
+    </section>
+
+    <section class="tiles" aria-label="Stats">
+      <div class="tile"><div class="label">Games played</div><div class="value" id="games">–</div><div class="sub" id="games-sub"></div></div>
+      <div class="tile"><div class="label">Last game</div><div class="value" id="last">–</div><div class="sub" id="last-sub"></div></div>
+      <div class="tile"><div class="label" id="first-label">First 50 games</div><div class="value" id="first">–</div><div class="sub">average guesses</div></div>
+      <div class="tile"><div class="label" id="recent-label">Last 50 games</div><div class="value" id="recent">–</div><div class="sub">average guesses</div></div>
+    </section>
+
+    <section class="card">
+      <h2>Guesses needed to find the word, game by game</h2>
+      <p class="subtitle">Each game's secret is a random word from the list. The AI knows the rules and keeps guessing until it gets it.</p>
+      <div class="legend" aria-hidden="true">
+        <span><i class="key dot"></i>One game</span>
+        <span><i class="key line"></i><span id="avg-legend">Average of the last 50 games</span></span>
+        <span><i class="key ref"></i><span id="ref-legend">No strategy (random possible word)</span></span>
+      </div>
+      <div class="chart-box"><canvas id="chart" aria-label="Guesses per game chart" role="img"></canvas></div>
+      <p id="chart-error" class="error" hidden>The chart library couldn't load (no internet?). The stats above still update.</p>
+    </section>
+
+    <details class="card table-card">
+      <summary>Table of every game</summary>
+      <table>
+        <thead><tr><th>Game</th><th>Secret word</th><th>Guesses</th><th id="table-avg-head">Avg of last 50</th></tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </details>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
