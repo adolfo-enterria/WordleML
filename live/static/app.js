@@ -1,117 +1,171 @@
-// Live training dashboard: polls the Python server and draws one dot per game
-// plus a rolling average. All the learning happens in Python (live/session.py).
+// Live training dashboard. Polls the Python server (live/server.py) and draws:
+//  - the skill-check curve (same words, best guesses: what the AI has learned)
+//  - the practice games it learns from (random words, some exploring)
+//  - its 3 weights, and the word-difficulty analysis / lookup.
+// All the learning happens in Python (live/session.py).
 
 const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 0]; // games per second; 0 = as fast as possible
+const TARGETS = [100, 250, 500, 1000, 2000, 5000];
 const POLL_MS = 250;
+const WEIGHT_LABELS = {
+  distinct_letters: "Different letters in the word",
+  possible_letters: "Common letters (among possible words)",
+  possible_positions: "Letters in their common spots",
+};
 
 let runId = null;
 let windowSize = 50;
-let games = []; // {x: game number, y: guesses, secret}
-let averages = []; // {x: game number, y: average of the last `windowSize` games}
+const games = [];       // practice games: {x, y, secret}
+const averages = [];    // rolling average of practice games: {x, y}
+const skillPoints = [];    // skill checks, best guesses: {x: games trained, y: average guesses}
+const practicePoints = []; // skill checks, playing like in practice (exploring)
 let windowSum = 0;
-let draggingSpeed = false;
+let dragging = { speed: false, target: false };
+let analysisKey = null;
+let skillChart = null;
+let practiceChart = null;
 
 const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
 
-// ---------------------------------------------------------------- chart
+// ---------------------------------------------------------------- charts
 
 const crosshair = {
   id: "crosshair",
   afterDatasetsDraw(chart) {
     const active = chart.tooltip && chart.tooltip.getActiveElements();
     if (!active || !active.length) return;
-    const x = active[0].element.x;
     const { top, bottom } = chart.chartArea;
     const ctx = chart.ctx;
     ctx.save();
     ctx.strokeStyle = css("--axis");
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x, top);
-    ctx.lineTo(x, bottom);
+    ctx.moveTo(active[0].element.x, top);
+    ctx.lineTo(active[0].element.x, bottom);
     ctx.stroke();
     ctx.restore();
   },
 };
 
-function makeChart(targetGames) {
+function baseOptions(targetGames, xTitle, yTitle) {
+  return {
+    animation: false,
+    locale: "en-US", // same number format as the tiles
+    responsive: true,
+    maintainAspectRatio: false,
+    parsing: false,
+    interaction: { mode: "index", intersect: false },
+    scales: {
+      x: { type: "linear", min: 0, max: targetGames, ticks: {}, title: { display: true, text: xTitle } },
+      y: { ticks: {}, title: { display: true, text: yTitle } },
+    },
+    plugins: { legend: { display: false }, tooltip: { displayColors: false } },
+  };
+}
+
+function makeCharts(targetGames) {
   if (!window.Chart) {
-    $("chart-error").hidden = false;
-    return null;
+    document.querySelectorAll(".chart-error").forEach((node) => { node.hidden = false; });
+    return;
   }
-  return new Chart($("chart"), {
+  const skillOptions = baseOptions(targetGames, "games trained", "average guesses");
+  skillOptions.scales.y.suggestedMin = 3.4;
+  skillOptions.scales.y.suggestedMax = 4.4;
+  skillOptions.plugins.tooltip.filter = (item) => item.datasetIndex !== 2;
+  skillOptions.plugins.tooltip.callbacks = {
+    title: (items) => items[0].raw.x === 0 ? "Game 0: blank AI, no training yet"
+                                           : `After ${items[0].raw.x.toLocaleString("en-US")} games of training`,
+    label: (item) => `${item.raw.y.toFixed(2)}  ${item.datasetIndex === 0 ? "best guesses" : "playing like in practice"}`,
+  };
+  skillChart = new Chart($("skill-chart"), {
     data: {
       datasets: [
-        { type: "scatter", label: "One game", data: games, pointRadius: 3, pointHoverRadius: 5,
-          borderWidth: 0, order: 2 },
-        { type: "line", label: "Average", data: averages, borderWidth: 2, pointRadius: 0,
-          pointHoverRadius: 4, tension: 0, borderJoinStyle: "round", borderCapStyle: "round", order: 1 },
-        { type: "line", label: "No strategy", data: [], borderWidth: 1, pointRadius: 0,
-          pointHoverRadius: 0, order: 3 },
+        { type: "line", label: "Best guesses", data: skillPoints, borderWidth: 2, pointRadius: 4,
+          pointHoverRadius: 6, pointBorderWidth: 2, tension: 0, borderJoinStyle: "round", order: 1 },
+        { type: "line", label: "Playing like in practice", data: practicePoints, borderWidth: 2, pointRadius: 4,
+          pointHoverRadius: 6, pointBorderWidth: 2, tension: 0, borderJoinStyle: "round", order: 2 },
+        { type: "line", label: "Blank AI level", data: [], borderWidth: 1, pointRadius: 0, pointHoverRadius: 0,
+          order: 3 },
       ],
     },
-    options: {
-      animation: false,
-      responsive: true,
-      maintainAspectRatio: false,
-      parsing: false,
-      interaction: { mode: "index", intersect: false },
-      scales: {
-        x: { type: "linear", min: 0, max: targetGames, ticks: {},
-             title: { display: true, text: "games played" } },
-        y: { min: 1, suggestedMax: 8, ticks: { stepSize: 1, precision: 0 },
-             title: { display: true, text: "guesses to find the word" } },
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          filter: (item) => item.datasetIndex !== 2,
-          displayColors: false,
-          callbacks: {
-            title: (items) => `Game ${items[0].raw.x}`,
-            label: (item) => item.datasetIndex === 0
-              ? `${item.raw.y} guesses · ${item.raw.secret.toUpperCase()}`
-              : `${item.raw.y.toFixed(2)} average of the last ${Math.min(windowSize, item.raw.x)}`,
-          },
-        },
-      },
-    },
+    options: skillOptions,
     plugins: [crosshair],
   });
+
+  const practiceOptions = baseOptions(targetGames, "practice games played", "guesses");
+  practiceOptions.scales.y.min = 1;
+  practiceOptions.scales.y.suggestedMax = 8;
+  practiceOptions.scales.y.ticks = { stepSize: 1, precision: 0 };
+  practiceOptions.plugins.tooltip.callbacks = {
+    title: (items) => `Game ${items[0].raw.x}`,
+    label: (item) => item.datasetIndex === 0
+      ? `${item.raw.y} guesses · ${item.raw.secret.toUpperCase()}`
+      : `${item.raw.y.toFixed(2)} average of the last ${Math.min(windowSize, item.raw.x)}`,
+  };
+  practiceChart = new Chart($("practice-chart"), {
+    data: {
+      datasets: [
+        { type: "scatter", label: "One game", data: games, pointRadius: 2.5, pointHoverRadius: 5,
+          borderWidth: 0, order: 2 },
+        { type: "line", label: "Average", data: averages, borderWidth: 2, pointRadius: 0,
+          pointHoverRadius: 4, tension: 0, order: 1 },
+      ],
+    },
+    options: practiceOptions,
+    plugins: [crosshair],
+  });
+  applyTheme();
 }
 
-function applyTheme(chart) {
-  if (!chart) return;
-  const [dots, line, ref] = chart.data.datasets;
-  dots.backgroundColor = css("--series-dots");
-  line.borderColor = css("--series");
-  line.pointHoverBackgroundColor = css("--series");
-  ref.borderColor = css("--reference");
-  for (const axis of Object.values(chart.options.scales)) {
-    axis.grid = { color: css("--grid") };
-    axis.border = { color: css("--axis") };
-    axis.ticks.color = css("--text-muted");
-    axis.title.color = css("--text-secondary");
+function applyTheme() {
+  for (const chart of [skillChart, practiceChart]) {
+    if (!chart) continue;
+    for (const axis of Object.values(chart.options.scales)) {
+      axis.grid = { color: css("--grid") };
+      axis.border = { color: css("--axis") };
+      axis.ticks.color = css("--text-muted");
+      axis.title.color = css("--text-secondary");
+    }
+    const tip = chart.options.plugins.tooltip;
+    Object.assign(tip, { backgroundColor: css("--surface"), borderColor: css("--border"), borderWidth: 1,
+                         titleColor: css("--text-secondary"), bodyColor: css("--text-primary") });
   }
-  const tip = chart.options.plugins.tooltip;
-  tip.backgroundColor = css("--surface");
-  tip.borderColor = css("--border");
-  tip.borderWidth = 1;
-  tip.titleColor = css("--text-secondary");
-  tip.bodyColor = css("--text-primary");
-  chart.update("none");
+  if (skillChart) {
+    const [best, practice, ref] = skillChart.data.datasets;
+    for (const [line, color] of [[best, css("--series")], [practice, css("--series-2")]]) {
+      Object.assign(line, { borderColor: color, pointBackgroundColor: color,
+                            pointBorderColor: css("--surface"), pointHoverBackgroundColor: color });
+    }
+    ref.borderColor = css("--reference");
+    skillChart.update("none");
+  }
+  if (practiceChart) {
+    const [dots, line] = practiceChart.data.datasets;
+    dots.backgroundColor = css("--series-dots");
+    Object.assign(line, { borderColor: css("--series"), pointHoverBackgroundColor: css("--series") });
+    practiceChart.update("none");
+  }
 }
 
-let chart = null;
-
-// ---------------------------------------------------------------- data
+// ---------------------------------------------------------------- training data
 
 function clearRun() {
   games.length = 0;
   averages.length = 0;
+  skillPoints.length = 0;
+  practicePoints.length = 0;
   windowSum = 0;
+  analysisKey = null;
   $("table-body").replaceChildren();
+  $("analysis").hidden = true;
+  $("lookup-result").replaceChildren();
 }
 
 function addGame([n, secret, guesses]) {
@@ -121,62 +175,198 @@ function addGame([n, secret, guesses]) {
   const avg = windowSum / Math.min(games.length, windowSize);
   averages.push({ x: n, y: avg });
 
-  const row = document.createElement("tr");
-  for (const text of [n, secret.toUpperCase(), guesses, avg.toFixed(2)]) {
-    const cell = document.createElement("td");
-    cell.textContent = text;
-    row.appendChild(cell);
-  }
+  const row = el("tr");
+  for (const text of [n, secret.toUpperCase(), guesses, avg.toFixed(2)]) row.appendChild(el("td", "", text));
   $("table-body").prepend(row);
 }
 
+function renderWeights(weights) {
+  const values = Object.values(weights);
+  const scale = Math.max(1, ...values.map(Math.abs));
+  const rows = Object.entries(weights).map(([name, value]) => {
+    const row = el("div", "weight");
+    row.appendChild(el("span", "", WEIGHT_LABELS[name] || name));
+    const track = el("div", "track");
+    if (value !== 0) {
+      const fill = el("div", `fill ${value > 0 ? "pos" : "neg"}`);
+      fill.style.width = `${(Math.abs(value) / scale) * 50}%`;
+      track.appendChild(fill);
+    }
+    row.appendChild(track);
+    row.appendChild(el("span", "num", (value >= 0 ? "+" : "") + value.toFixed(2)));
+    return row;
+  });
+  $("weights").replaceChildren(...rows);
+}
+
+function syncSlider(id, list, value, format) {
+  if (dragging[id]) return;
+  let index = list.indexOf(value);
+  if (index < 0) index = list.reduce((best, v, i) => Math.abs(v - value) < Math.abs(list[best] - value) ? i : best, 0);
+  $(id).value = index;
+  $(`${id}-label`).textContent = format(value);
+}
+const formatSpeed = (speed) => speed === 0 ? "max speed" : `${speed} games/s`;
+const formatTarget = (target) => `${target.toLocaleString("en-US")} games`;
+
 function render(state) {
-  if (!chart && state.target_games) {
-    chart = makeChart(state.target_games);
-    applyTheme(chart);
-  }
+  if (!skillChart && !practiceChart && state.target_games) makeCharts(state.target_games);
   windowSize = state.window;
 
   if (state.run_id !== runId) { // first load, or someone pressed Reset
     runId = state.run_id;
     clearRun();
   }
-  if (state.since === games.length) { // ignore replies that don't line up with what we have
-    state.results.forEach(addGame);
+  if (state.since === games.length) state.results.forEach(addGame); // skip replies that don't line up
+
+  skillPoints.length = 0;
+  practicePoints.length = 0;
+  for (const [n, best, practice] of state.skill_checks) {
+    skillPoints.push({ x: n, y: best });
+    practicePoints.push({ x: n, y: practice });
   }
 
-  // Status + buttons
+  for (const chart of [skillChart, practiceChart]) {
+    if (chart) chart.options.scales.x.max = state.target_games;
+  }
+  if (skillChart) { // faint line at the blank AI's level, so the drop is easy to see
+    const start = state.stats.skill_before;
+    skillChart.data.datasets[2].data = start === null ? []
+      : [{ x: 0, y: start }, { x: state.target_games, y: start }];
+  }
+
+  // Status + controls
   const labels = { running: "Running", paused: "Paused", finished: "Finished · model saved" };
   $("status").textContent = labels[state.status] || state.status;
   $("status").dataset.status = state.status;
   $("pause").disabled = state.status !== "running";
   $("continue").disabled = state.status !== "paused";
-
-  if (!draggingSpeed) {
-    const index = SPEEDS.indexOf(state.games_per_second);
-    $("speed").value = index >= 0 ? index : SPEEDS.indexOf(10);
-    showSpeed();
-  }
+  syncSlider("speed", SPEEDS, state.games_per_second, formatSpeed);
+  syncSlider("target", TARGETS, state.target_games, formatTarget);
 
   // Tiles
   const s = state.stats;
-  $("games").textContent = state.games_played.toLocaleString();
-  $("games-sub").textContent = `of ${state.target_games.toLocaleString()}`;
-  $("last").textContent = s.last_game ? `${s.last_game.guesses} guesses` : "–";
-  $("last-sub").textContent = s.last_game ? s.last_game.secret.toUpperCase() : "";
-  $("first").textContent = s.first_avg === null ? "–" : s.first_avg.toFixed(2);
-  $("recent").textContent = s.recent_avg === null ? "–" : s.recent_avg.toFixed(2);
-  $("first-label").textContent = `First ${s.first_count || windowSize} games`;
-  $("recent-label").textContent = `Last ${s.recent_count || windowSize} games`;
+  $("games").textContent = state.games_played.toLocaleString("en-US");
+  $("games-sub").textContent = `of ${state.target_games.toLocaleString("en-US")}`;
+  $("skill-before").textContent = s.skill_before === null ? "–" : s.skill_before.toFixed(2);
+  $("skill-now").textContent = s.skill_now === null ? "–" : s.skill_now.toFixed(2);
+  $("skill-now-sub").textContent = s.skill_now === null ? "" : `avg guesses after ${s.skill_now_games.toLocaleString("en-US")} games`;
+  if (s.skill_now !== null && s.skill_before !== null) {
+    const saved = s.skill_before - s.skill_now;
+    $("improvement").textContent = `${saved >= 0 ? "−" : "+"}${Math.abs(saved).toFixed(2)}`;
+    $("improvement-sub").textContent = `guesses per game (${((saved / s.skill_before) * 100).toFixed(1)}% fewer)`;
+  }
+  $("check-words").textContent = state.check_words;
+  $("skill-subtitle").textContent = `Every 5 games at first (then every ${state.check_interval}), training pauses and the AI plays the same ${state.check_words} words. Same words every time, so the luck of which word comes up can't move these lines: only learning can. Game 0 is the blank AI, before any training.`;
   $("avg-legend").textContent = `Average of the last ${windowSize} games`;
   $("table-avg-head").textContent = `Avg of last ${windowSize}`;
+  renderWeights(state.weights);
+  renderAnalysisStatus(state.analysis);
 
-  // Reference line: how many guesses it takes with no strategy at all
-  if (chart && state.baseline !== null && chart.data.datasets[2].data.length === 0) {
-    chart.data.datasets[2].data = [{ x: 0, y: state.baseline }, { x: state.target_games, y: state.baseline }];
-    $("ref-legend").textContent = `No strategy (random possible word): ${state.baseline.toFixed(2)}`;
+  if (skillChart) skillChart.update("none");
+  if (practiceChart) practiceChart.update("none");
+}
+
+// ---------------------------------------------------------------- word difficulty
+
+function renderAnalysisStatus(analysis) {
+  const running = analysis.state === "running";
+  $("analyze").disabled = running;
+  $("analysis-status").textContent = running ? `Analyzing… ${Math.round(analysis.progress * 100)}%` : "";
+  if (analysis.state === "done") {
+    const key = `${runId}:${analysis.games_trained}`;
+    if (key !== analysisKey) {
+      analysisKey = key;
+      fetch("/api/analysis").then((r) => r.json()).then((a) => a.result && renderAnalysis(a));
+    }
+  } else if (analysis.state === "idle") {
+    $("analysis").hidden = true;
   }
-  if (chart) chart.update("none");
+}
+
+function renderAnalysis({ result, games_trained: trained }) {
+  const top = result.conclusions[0];
+  $("analysis-summary").textContent =
+    `All ${result.words.toLocaleString("en-US")} words, played by the AI after ${trained.toLocaleString("en-US")} games of training: ` +
+    `${result.avg_guesses.toFixed(2)} guesses on average, and its opening word is ${result.opener.toUpperCase()}. ` +
+    `Biggest factor: ${top.title}. ${top.hard_label}: ${top.hard.toFixed(2)} guesses vs ` +
+    `${top.easy_label}: ${top.easy.toFixed(2)}.`;
+
+  // One dot plot per trait, all on the same scale so they compare fairly.
+  const all = Object.values(result.groups).flat().filter((g) => g.avg_guesses !== null).map((g) => g.avg_guesses);
+  const lo = Math.floor((Math.min(...all) - 0.1) * 10) / 10;
+  const hi = Math.ceil((Math.max(...all) + 0.1) * 10) / 10;
+  const blocks = result.conclusions.map((c, i) => {
+    const block = el("div", "trait");
+    const title = el("h4", "", `${c.title} `);
+    title.appendChild(el("span", "rank", `· ${c.gap.toFixed(2)} guess gap${i === 0 ? " (biggest)" : ""}`));
+    block.appendChild(title);
+    for (const g of result.groups[c.trait]) {
+      if (g.avg_guesses === null) continue;
+      const row = el("div", "dotrow");
+      row.title = `${g.words.toLocaleString("en-US")} words`;
+      row.appendChild(el("span", "", `${g.label} (${g.words.toLocaleString("en-US")})`));
+      const track = el("div", "track");
+      const dot = el("div", "dot");
+      dot.style.left = `${((g.avg_guesses - lo) / (hi - lo)) * 100}%`;
+      track.appendChild(dot);
+      row.appendChild(track);
+      row.appendChild(el("span", "num", g.avg_guesses.toFixed(2)));
+      block.appendChild(row);
+    }
+    const scale = el("div", "scale");
+    scale.appendChild(el("span", "", "avg guesses"));
+    const ends = el("div");
+    ends.appendChild(el("span", "", lo.toFixed(1)));
+    ends.appendChild(el("span", "", hi.toFixed(1)));
+    scale.appendChild(ends);
+    scale.appendChild(el("span"));
+    block.appendChild(scale);
+    return block;
+  });
+  $("traits").replaceChildren(...blocks);
+
+  const rows = result.hardest.map((h) => {
+    const row = el("tr");
+    const wordCell = el("td");
+    const link = el("a", "", h.word.toUpperCase());
+    link.addEventListener("click", () => lookup(h.word));
+    wordCell.appendChild(link);
+    row.appendChild(wordCell);
+    row.appendChild(el("td", "", h.guesses));
+    row.appendChild(el("td", "", h.left_after_opener.toLocaleString("en-US")));
+    row.appendChild(el("td", "", h.repeated_letters ? "yes" : "no"));
+    const alikes = h.look_alikes.slice(0, 6).map((w) => w.toUpperCase()).join(", ");
+    row.appendChild(el("td", "", h.look_alikes.length ? alikes + (h.look_alikes.length > 6 ? ` +${h.look_alikes.length - 6}` : "") : "none"));
+    return row;
+  });
+  $("hardest-body").replaceChildren(...rows);
+  $("analysis").hidden = false;
+}
+
+async function lookup(word) {
+  $("lookup-word").value = word;
+  const report = await (await fetch(`/api/word?w=${encodeURIComponent(word)}`)).json();
+  const box = $("lookup-result");
+  if (report.error) {
+    box.replaceChildren(el("p", "explain", report.error));
+    return;
+  }
+  const n = report.steps.length;
+  const head = el("p", "explain",
+    `${report.word.toUpperCase()}: solved in ${n} guess${n === 1 ? "" : "es"} by the AI after ` +
+    `${report.games_trained.toLocaleString("en-US")} games of training. Repeated letter: ${report.repeated_letters ? "yes" : "no"}. ` +
+    `One-letter look-alikes: ${report.look_alikes.length ? report.look_alikes.map((w) => w.toUpperCase()).join(", ") : "none"}.`);
+  const rows = report.steps.map((step, i) => {
+    const row = el("div", "play-row");
+    const tiles = el("div", "tiles-row");
+    [...step.guess].forEach((letter, j) => tiles.appendChild(el("div", `wtile g${step.feedback[j]}`, letter.toUpperCase())));
+    row.appendChild(tiles);
+    row.appendChild(el("span", "", i === n - 1 ? "solved"
+      : `${step.words_left.toLocaleString("en-US")} word${step.words_left === 1 ? "" : "s"} still possible`));
+    return row;
+  });
+  box.replaceChildren(head, ...rows);
 }
 
 // ---------------------------------------------------------------- server
@@ -201,19 +391,30 @@ async function post(path, body) {
   render(await response.json());
 }
 
-function showSpeed() {
-  const speed = SPEEDS[$("speed").value];
-  $("speed-label").textContent = speed === 0 ? "max speed" : `${speed} games/s`;
+function slider(id, list, format, path, key) {
+  $(id).addEventListener("input", () => {
+    dragging[id] = true;
+    $(`${id}-label`).textContent = format(list[$(id).value]);
+  });
+  $(id).addEventListener("change", async () => {
+    await post(path, { [key]: list[$(id).value] });
+    dragging[id] = false;
+  });
 }
 
 $("pause").addEventListener("click", () => post("/api/pause"));
 $("continue").addEventListener("click", () => post("/api/continue"));
 $("reset").addEventListener("click", () => post("/api/reset"));
-$("speed").addEventListener("input", () => { draggingSpeed = true; showSpeed(); });
-$("speed").addEventListener("change", async () => {
-  await post("/api/speed", { games_per_second: SPEEDS[$("speed").value] });
-  draggingSpeed = false;
+$("analyze").addEventListener("click", () => post("/api/analyze"));
+$("lookup").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const word = $("lookup-word").value.trim();
+  if (word) lookup(word);
 });
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => applyTheme(chart));
+slider("speed", SPEEDS, formatSpeed, "/api/speed", "games_per_second");
+slider("target", TARGETS, formatTarget, "/api/target", "games");
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
 
+const linkedWord = new URLSearchParams(location.search).get("word"); // e.g. /?word=foyer
+if (linkedWord) lookup(linkedWord);
 poll();

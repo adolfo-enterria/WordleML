@@ -2,9 +2,12 @@
 
     GET  /                     the dashboard page
     GET  /static/<file>        its stylesheet and script
-    GET  /api/state?since=N    status, stats, and every game after game N
-    POST /api/pause | /api/continue | /api/reset
+    GET  /api/state?since=N    status, stats, skill checks, and every practice game after game N
+    GET  /api/analysis         the latest word-difficulty analysis
+    GET  /api/word?w=crane     how the AI (as it is now) plays one word
+    POST /api/pause | /api/continue | /api/reset | /api/analyze
     POST /api/speed            body: {"games_per_second": 10}   (0 = as fast as possible)
+    POST /api/target           body: {"games": 1000}
 """
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,20 +34,28 @@ def make_server(session, port=8765, host="127.0.0.1"):
             elif url.path == "/api/state":
                 since = parse_qs(url.query).get("since", ["0"])[0]
                 self._send_json(session.snapshot(since=max(0, int(since)) if since.isdigit() else 0))
+            elif url.path == "/api/analysis":
+                self._send_json(session.analysis_result())
+            elif url.path == "/api/word":
+                word = parse_qs(url.query).get("w", [""])[0]
+                self._send_json(session.word_report(word))
             else:
                 self._send_json({"error": "not found"}, status=404)
 
         def do_POST(self):
             actions = {"/api/pause": session.pause, "/api/continue": session.resume,
-                       "/api/reset": session.reset}
+                       "/api/reset": session.reset, "/api/analyze": session.start_analysis}
+            settings = {"/api/speed": ("games_per_second", session.set_speed),
+                        "/api/target": ("games", session.set_target)}
             path = urlparse(self.path).path
             if path in actions:
                 actions[path]()
-            elif path == "/api/speed":
+            elif path in settings:
+                key, setter = settings[path]
                 try:
-                    session.set_speed(float(self._read_json()["games_per_second"]))
-                except (KeyError, ValueError, TypeError):
-                    return self._send_json({"error": "expected {\"games_per_second\": number}"}, 400)
+                    setter(float(self._read_json()[key]))
+                except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                    return self._send_json({"error": f"expected {{\"{key}\": number}}"}, 400)
             else:
                 return self._send_json({"error": "not found"}, status=404)
             self._send_json(session.snapshot(since=0) | {"results": []})

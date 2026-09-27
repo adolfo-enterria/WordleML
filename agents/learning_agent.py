@@ -44,9 +44,10 @@ def softmax(scores):
 class LearningAgent(Agent):
     name = "learning"
 
-    def __init__(self, words, learning_rate=0.05, seed=None):
+    def __init__(self, words, learning_rate=0.05, seed=None, featurizer=None):
         self.words = list(words)
-        self.featurizer = Featurizer(self.words)
+        # The featurizer is read-only after it's built, so copies of an agent can share one.
+        self.featurizer = featurizer or Featurizer(self.words)
         self.weights = np.zeros(N_FEATURES)  # all zero: no idea what's good yet
         self.baseline = []  # expected return from each turn on; filled in as it plays
         self.learning_rate = learning_rate

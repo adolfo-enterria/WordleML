@@ -35,11 +35,10 @@ def main():
     except OSError:
         sys.exit(f"Port {args.port} is busy (is another dashboard running?). Try --port 8766.")
 
-    threading.Thread(target=session.measure_baseline, daemon=True).start()
     threading.Thread(target=session.run_forever, daemon=True).start()
 
     url = f"http://127.0.0.1:{args.port}/"
-    print(f"Dashboard running at {url}  (Ctrl+C to stop)")
+    print(f"Dashboard running at {url}  (Ctrl+C to stop)", flush=True)
     if not args.no_browser:
         webbrowser.open(url)
     try:
