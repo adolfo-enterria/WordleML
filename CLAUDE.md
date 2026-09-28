@@ -10,19 +10,30 @@ loads Chart.js from cdn.jsdelivr.net. Developed on Windows (PowerShell / Git Bas
 ```
 python dashboard.py                  # live training dashboard -> opens browser (default mode "any")
 python dashboard.py --mode possible --games 2000 --speed 0 --seed 3
-python benchmark.py [--quick]        # reproducible report in reports/<date-time>/ (full ~20 min)
-python play.py                       # play Wordle yourself (6 guesses, real rules)
-python play.py --watch [--secret nymph]   # watch the trained AI (models/agent.npz)
-python evaluate.py [--agent consistent]   # one game per answer word, average guesses
-python -m pytest                     # all tests (~2 min)
+python dashboard.py --length 7       # 7-letter common words (the page's slider does the same)
+python benchmark.py [--quick]        # reproducible report in reports/<date-time>/ (full ~10 min)
+python benchmark.py --length-study   # word lengths 3-8 compared (~10 min)
+python play.py [--length 6]          # play Wordle yourself (6 guesses, real rules)
+python play.py --watch [--secret nymph] [--lookahead]   # watch the trained AI
+python evaluate.py [--agent consistent] [--lookahead] [--length 6]
+python -m wordle.wordlists           # rebuild the common-word lists (data/lists/)
+python -m pytest                     # all tests (~3 min)
 ```
 
 ## Layout
 
 - `wordle/`:
   - `game.py`: scoring with Wordle's duplicate-letter rules; `max_guesses=None` means play until solved.
-  - `words.py`: word lists and numpy encoding.
-  - `patterns.py`: the 12,972 × 2,315 table of every (guess, answer) color pattern. It's cached in `data/patterns.npz`, built on first use in ~10 s. Answers come first in the guess list, so answer i is guess i.
+  - `words.py`: word sets and numpy encoding.
+    - A word set is `wordle5` (the official lists, the default) or `common3`…`common8`.
+    - `load_word_set(name)` returns answers + guesses, with the answers first, so answer i is guess i.
+  - `wordlists.py`: builds `data/lists/common{L}_*.txt` from `data/sources/` (ENABLE + FrequencyWords; attribution in `data/sources/README.md`).
+    - Natural lists: dictionary words among the N most frequent English words, simple plurals dropped.
+    - N is calibrated so that 5 letters gives 2,315 answers.
+    - Guesses are capped at 15,000.
+  - `patterns.py`: the guesses × answers table of every color pattern for a word set, cached in `data/patterns.npz` (`wordle5`) or `data/patterns_{set}.npz`.
+    - Build time on first use: ~10 s for 5 letters, up to ~20 s for 8.
+    - Stored as uint8 up to 5 letters and uint16 above (3^L patterns).
   - `display.py`: colored tiles.
 - `agents/`:
   - `__init__.py`: `make_learner(mode)`, `load_learner(path)` and `make_agent(name)`. These are the entry points.
@@ -31,17 +42,24 @@ python -m pytest                     # all tests (~2 min)
   - `split_features.py`: how every valid guess splits the still-possible answers (group sizes → facts), plus `candidates()`.
   - `features.py`: the rules as a mask for "possible" mode.
   - `consistent_agent.py`: a random possible word (no strategy).
+  - `lookahead.py`: rollout at test time.
+    - It takes the planner's top-`width` guesses and computes each one's *exact* expected further guesses if the planner plays on (a memoized walk of the planner's tree, no sampling).
+    - Never worse than the planner; deterministic; learns nothing.
 - `analysis/`:
   - `difficulty.py`: word traits, `analyze()` and `trace_game()`. Fixed tie-break seed, so the lookup and the analysis agree.
   - `strategies.py`: hand-made greedy heuristics, forced opener, fact subsets.
   - `stats.py`: CIs, paired bootstrap, power analysis, OLS.
-  - `benchmark_tasks.py`: worker-process tasks.
+  - `benchmark_tasks.py`: worker-process tasks. `use_words(set)` lets one pool serve several word sets.
+  - `length_study.py`: `benchmark.py --length-study`, comparing lengths 3–8.
   - `figures.py`: report charts.
 - `live/`:
-  - `session.py`: the training thread. It handles controls, skill checks, the final exam and the "what it learned to do" stats. `snapshot()` is the dashboard's data.
+  - `session.py`: the training thread.
+    - It handles controls, skill checks, the final exam, the look-ahead exam (background) and the "what it learned to do" stats.
+    - `set_words(length, official)` prepares a word set in a background thread (status "preparing"), then starts fresh.
+    - `snapshot()` is the dashboard's data.
   - `server.py`: JSON API.
   - `static/`: the page.
-- `models/agent.npz`: saved by the dashboard when a run finishes (planner or policy; `load_learner` picks the right one).
+- `models/agent.npz` (`wordle5`) and `models/agent_{set}.npz`: saved by the dashboard when a run finishes. They can be planner or policy, and `load_learner` picks the right one; the word set is stored in the file.
 
 ## How the agents work (and why)
 
@@ -59,10 +77,15 @@ python -m pytest                     # all tests (~2 min)
   - The result was either probing every time 2 were left (3.67) or never probing (3.64).
   - A learned "probe or go" gate learned to never probe (~3.55).
   - With the useless-guess rule, REINFORCE on split facts reaches 3.494.
-  - The value-learning planner reaches 3.438 (the benchmark in `reports/2026-09-28_095629/`).
+  - The value-learning planner reaches 3.438 (the benchmark in `reports/2026-09-28_135727/`).
+- **Look-ahead** (width 10) takes the same planner to 3.4246, +0.0045 from the proven 3.4201, in ~15 s for all 2,315 words.
+  - Width 5 gives 3.4276, and width 20 is no better than 10.
+  - The practice games stay one-step, so training stays fast.
 - **Performance:**
-  - Split facts and costs are computed for all 12,972 guesses each turn. When few words are left, a per-answer group-size lookup is used; when many are left, dense per-guess counts.
-  - Turn-1 counts are cached, and frozen agents cache costs for big candidate sets.
+  - Split facts and costs are computed for all guesses each turn, in blocks of guesses (`BLOCK_CELLS`) so memory stays bounded even at 3^8 patterns.
+  - With n words left, group sizes are counted over all 3^L patterns when n² > 2·3^L, else by comparing the n words pairwise. Counting costs the same for 2 words as for 2,000: ~430 ms per decision at 8 letters, versus ~1–8 ms pairwise. That made 7–8-letter look-ahead and the greedy baseline crawl.
+  - Turn 1's group sizes are cached compactly per word set (`first_turn_groups`, independent of V).
+  - Frozen agents cache costs for big candidate sets.
   - Typical cost: a best-guess game ~10–30 ms; a practice game (planner) ~30–60 ms.
 
 ## Conventions
@@ -84,8 +107,10 @@ python -m pytest                     # all tests (~2 min)
   - New stats go in `TrainingSession.snapshot()` plus a tile or card in `index.html` / `render()` in `app.js`.
   - `knowledge()` on each agent describes what it has learned (weights or the V curve).
 - **Honesty in reports:**
-  - The 3.4201 optimum is over all 2,315 answers with any valid guess allowed.
-  - Never compare it with a subset score (the dashboard's 100-word skill check, or `--quick`).
+  - The 3.4201 optimum is over all 2,315 answers of the official list, with any valid guess allowed.
+  - Never compare it with a subset score (the dashboard's 100-word skill check, or `--quick`), or with any `common*` list.
+  - For other lists there's no published optimum; the look-ahead score is an upper bound.
+- **Word length:** code must never assume 5 letters. Use `word_set.length`, `featurizer.length` / `n_patterns`, or `len(word)`. `tests/test_lengths.py` checks 3–8 letters against `score_guess`.
 - **Output encoding:**
   - Colored terminal output uses ANSI codes; strip them with `sed 's/\x1b\[[0-9;]*m//g'` when piping.
   - When editing files from Python on Windows, pass `encoding="utf-8"` (the web files contain –, …, ·, −).

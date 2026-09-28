@@ -1,7 +1,8 @@
 """The planning agent: learns how costly each situation is, then plans one guess ahead.
 
-What it knows (the rules): which answers are still possible, and for any of the
-12,972 valid words, how that guess would split them into color groups.
+What it knows (the rules): which answers are still possible, and for any valid
+word, how that guess would split them into color groups. Works for any word set
+(any word length, see wordle/words.py).
 
 What it learns, by playing: V(m), how many more guesses it usually still needs
 when m words are possible. It fits a smooth curve to its own games,
@@ -23,12 +24,11 @@ import numpy as np
 from agents.base import Agent
 from agents.features import TIE_TOLERANCE
 from agents.split_features import SplitFeaturizer
-from wordle.patterns import N_PATTERNS
+from wordle.words import DEFAULT_WORD_SET
 
 FORGET = 0.98        # each game, older experience counts 2% less (memory of ~50 games)
-DENSE_ABOVE = 150    # above this many possible words, count color groups per guess instead
 CACHE_ABOVE = 20     # a frozen agent remembers costs for big candidate sets (they recur)
-CURVE_POINTS = [1, 2, 3, 5, 10, 20, 50, 100, 250, 500, 1000, 2315]
+CURVE_POINTS = [1, 2, 3, 5, 10, 20, 50, 100, 250, 500, 1000, 2000, 5000]
 
 
 def curve_basis(m):
@@ -40,8 +40,10 @@ class PlanningAgent(Agent):
     name = "planner"
     mode = "any"
 
-    def __init__(self, words=None, seed=None, featurizer=None, forget=FORGET, curve="curved"):
-        self.featurizer = featurizer or SplitFeaturizer()
+    def __init__(self, words=None, seed=None, featurizer=None, forget=FORGET, curve="curved",
+                 word_set=DEFAULT_WORD_SET):
+        self.featurizer = featurizer or SplitFeaturizer(word_set)
+        self.word_set = self.featurizer.word_set.name
         self.pool = self.featurizer.pool
         self.n_answers = self.featurizer.n_answers
         self.forget = forget
@@ -50,14 +52,13 @@ class PlanningAgent(Agent):
         self.training = False
         self.coef = np.zeros(3)             # blank: every situation costs 0
         self.xtx, self.xty = np.zeros((3, 3)), np.zeros(3)
-        self._first_counts = None           # turn 1's color groups never change: computed once
         self._cost_cache = {}               # only used while not learning (beliefs fixed)
         self._basis = curve_basis(np.arange(self.n_answers + 1))
 
     # --- what it believes ---------------------------------------------------
 
     def value_table(self):
-        """V(m) for m = 0..2315 (V(0) = 0: a group with no words costs nothing).
+        """V(m) for m = 0..number of answers (V(0) = 0: a group with no words costs nothing).
 
         The fitted curve is made never to go down as m grows: more words left
         can't be cheaper. (With little experience, or far beyond the sizes it
@@ -69,18 +70,12 @@ class PlanningAgent(Agent):
 
     def value_curve(self):
         v = self.value_table()
-        return [(m, float(v[m])) for m in CURVE_POINTS]
+        return [(m, float(v[m])) for m in CURVE_POINTS if m <= self.n_answers]
 
     def knowledge(self):
         return {"kind": "value", "items": [[m, v] for m, v in self.value_curve() if m <= 1000]}
 
     # --- choosing -----------------------------------------------------------
-
-    def _group_counts(self, possible):
-        """Color-group sizes per guess: a guesses x 243 table."""
-        cells = self.featurizer.by_answer[possible].astype(np.int32) + self.featurizer._offsets
-        counts = np.bincount(cells.ravel(), minlength=len(self.pool) * N_PATTERNS)
-        return counts.reshape(len(self.pool), N_PATTERNS)
 
     def expected_cost(self, possible):
         """For every valid word: expected guesses still needed AFTER playing it."""
@@ -96,22 +91,17 @@ class PlanningAgent(Agent):
     def _expected_cost(self, possible):
         n = len(possible)
         v = self.value_table()
-        if n == self.n_answers:
-            if self._first_counts is None:
-                self._first_counts = self._group_counts(possible)
-            counts = self._first_counts
-            cost = (counts * v[counts]).sum(axis=1)       # sum over groups of size * V(size)
-            useless = counts.max(axis=1) == n
-        elif n > DENSE_ABOVE:
-            counts = self._group_counts(possible)
-            cost = (counts * v[counts]).sum(axis=1)
-            useless = counts.max(axis=1) == n
+        if n == self.n_answers:  # turn 1: the groups never change, only V does
+            sizes, starts = self.featurizer.first_turn_groups()
+            cost = np.add.reduceat(sizes * v[sizes], starts)   # sum over groups of size * V(size)
+            useless = np.maximum.reduceat(sizes, starts) == n
         else:
-            cells = self.featurizer.by_answer[possible].astype(np.int32) + self.featurizer._offsets
-            counts = np.bincount(cells.ravel(), minlength=len(self.pool) * N_PATTERNS)
-            sizes = counts[cells]
-            cost = v[sizes].sum(axis=0).astype(float)     # same sum, answer by answer
-            useless = sizes.min(axis=0) == n
+            cost = np.empty(len(self.pool))
+            useless = np.empty(len(self.pool), bool)
+            for start, end, sizes in self.featurizer.group_size_blocks(possible):
+                cost[start:end] = v[sizes].sum(axis=0)         # same sum, answer by answer
+                useless[start:end] = sizes.min(axis=0) == n
+        cost = cost.astype(float)
         cost[possible] -= v[1]  # if the guess is the answer, that case needs 0 more guesses
         # A word giving the same colors for every possible answer can't tell it anything:
         # never an option (unless it could be the answer). Every guess then makes progress.
@@ -169,15 +159,16 @@ class PlanningAgent(Agent):
         """Same beliefs, doesn't learn, fixed tie-breaks: for skill checks and lookups."""
         copy = PlanningAgent(seed=seed, featurizer=self.featurizer, forget=self.forget, curve=self.curve)
         copy.coef = self.coef.copy()
-        copy._first_counts = self._first_counts
         return copy
 
     def save(self, path):
-        np.savez(path, coef=self.coef, xtx=self.xtx, xty=self.xty, mode="any", kind="planner")
+        np.savez(path, coef=self.coef, xtx=self.xtx, xty=self.xty, mode="any", kind="planner",
+                 word_set=self.word_set)
 
     @classmethod
-    def load(cls, path, words=None, seed=None):
+    def load(cls, path, words=None, seed=None, featurizer=None):
         data = np.load(path)
-        agent = cls(seed=seed)
+        word_set = str(data["word_set"]) if "word_set" in data else DEFAULT_WORD_SET
+        agent = cls(seed=seed, featurizer=featurizer, word_set=word_set)
         agent.coef, agent.xtx, agent.xty = data["coef"], data["xtx"], data["xty"]
         return agent

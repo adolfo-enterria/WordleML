@@ -28,6 +28,7 @@ import numpy as np
 from agents.base import Agent
 from agents.features import TIE_TOLERANCE, Featurizer
 from agents.split_features import SplitFeaturizer
+from wordle.words import DEFAULT_WORD_SET, load_word_set
 
 GUESS_COST = -1.0   # reward for every guess made
 BASELINE_RATE = 0.05
@@ -41,21 +42,23 @@ def softmax(scores):
     return exp / exp.sum()
 
 
-def make_featurizer(mode, words):
+def make_featurizer(mode, words=None, word_set=DEFAULT_WORD_SET):
     if mode == "any":
-        return SplitFeaturizer()
+        return SplitFeaturizer(word_set)
     if mode == "possible":
-        return Featurizer(words)
+        return Featurizer(words if words is not None else load_word_set(word_set).answers)
     raise ValueError(f"mode must be one of {MODES}")
 
 
 class LearningAgent(Agent):
     name = "learning"
 
-    def __init__(self, words, learning_rate=None, seed=None, featurizer=None, mode="any"):
+    def __init__(self, words, learning_rate=None, seed=None, featurizer=None, mode="any",
+                 word_set=DEFAULT_WORD_SET):
         self.mode = mode
+        self.word_set = word_set
         # The featurizer is read-only after it's built, so copies of an agent can share one.
-        self.featurizer = featurizer or make_featurizer(mode, words)
+        self.featurizer = featurizer or make_featurizer(mode, words, word_set)
         self.pool = self.featurizer.pool  # the words it may guess
         self.feature_names = list(self.featurizer.names)
         self.weights = np.zeros(len(self.feature_names))  # all zero: no idea what's good yet
@@ -115,7 +118,7 @@ class LearningAgent(Agent):
 
     def frozen_copy(self, seed=0):
         """Same weights, doesn't learn, fixed tie-breaks: for skill checks and lookups."""
-        copy = type(self)(None, seed=seed, featurizer=self.featurizer, mode=self.mode)
+        copy = type(self)(None, seed=seed, featurizer=self.featurizer, mode=self.mode, word_set=self.word_set)
         copy.weights = self.weights.copy()
         return copy
 
@@ -124,13 +127,15 @@ class LearningAgent(Agent):
 
     def save(self, path):
         np.savez(path, weights=self.weights, baseline=np.array(self.baseline),
-                 feature_names=np.array(self.feature_names), mode=self.mode, kind="policy")
+                 feature_names=np.array(self.feature_names), mode=self.mode, kind="policy",
+                 word_set=self.word_set)
 
     @classmethod
-    def load(cls, path, words, seed=None):
+    def load(cls, path, words=None, seed=None, featurizer=None):
         data = np.load(path)
         mode = str(data["mode"]) if "mode" in data else "possible"
-        agent = cls(words, seed=seed, mode=mode)
+        word_set = str(data["word_set"]) if "word_set" in data else DEFAULT_WORD_SET
+        agent = cls(words, seed=seed, mode=mode, word_set=word_set, featurizer=featurizer)
         if list(data["feature_names"]) != agent.feature_names:
             raise ValueError(f"{path} was trained with different features; retrain it.")
         agent.weights = data["weights"]

@@ -15,7 +15,7 @@ from wordle.game import GREEN, GREY
 from wordle.words import encode
 
 FEATURE_NAMES = [
-    "distinct_letters",    # how many different letters the word has (1-5)
+    "distinct_letters",    # how many different letters the word has
     "possible_letters",    # how common its letters are among the words still possible
     "possible_positions",  # ...and how common they are in those exact spots
 ]
@@ -44,11 +44,11 @@ def standardize(facts):
 class Knowledge:
     """Everything the feedback so far tells us, in array form."""
 
-    def __init__(self, history):
-        self.green = np.full(5, -1)                   # letter index known at each spot, or -1
-        self.wrong_spot = np.zeros((5, 26), bool)     # letter known NOT to be at this spot
+    def __init__(self, history, length=5):
+        self.green = np.full(length, -1)              # letter index known at each spot, or -1
+        self.wrong_spot = np.zeros((length, 26), bool)  # letter known NOT to be at this spot
         self.min_count = np.zeros(26, int)            # the answer has at least this many
-        self.max_count = np.full(26, 5)               # ...and at most this many
+        self.max_count = np.full(26, length)          # ...and at most this many
 
         for guess, feedback in history:
             letters = [ord(c) - ord("a") for c in guess]
@@ -75,6 +75,7 @@ class Featurizer:
         self.words = list(words)
         self.pool = self.words  # the words it may guess
         self.letters, self.counts = encode(self.words)
+        self.length = self.letters.shape[1]
         self.has_letter = self.counts > 0
         self.distinct = self.has_letter.sum(axis=1)
         self.tie_rank = tie_ranks(len(self.words))
@@ -86,18 +87,18 @@ class Featurizer:
         This is the rules of Wordle: a word is possible if it keeps every green,
         includes every yellow (somewhere else) and avoids every grey letter.
         """
-        return self._possible(Knowledge(history))
+        return self._possible(Knowledge(history, self.length))
 
     def _possible(self, k):
         # Only look at the letters the feedback actually says something about (fast).
         known = np.flatnonzero(k.green >= 0)
         present = np.flatnonzero(k.min_count > 0)
-        capped = np.flatnonzero(k.max_count < 5)
+        capped = np.flatnonzero(k.max_count < self.length)
 
         greens_moved = (self.letters[:, known] != k.green[known]).sum(axis=1)
         wrong_spot = k.wrong_spot.copy()
         wrong_spot[:, np.flatnonzero(k.min_count == 0)] = False  # absent letters count as grey
-        yellow_same_spot = wrong_spot[np.arange(5), self.letters].sum(axis=1)
+        yellow_same_spot = wrong_spot[np.arange(self.length), self.letters].sum(axis=1)
         left_out = np.maximum(k.min_count[present] - self.counts[:, present], 0).sum(axis=1)
         grey = np.maximum(self.counts[:, capped] - k.max_count[capped], 0).sum(axis=1)
         return (greens_moved + yellow_same_spot + left_out + grey) == 0
@@ -122,13 +123,13 @@ class Featurizer:
         """How common each word's letters are among `subset`, overall and by spot."""
         letter_share = self.has_letter[subset].mean(axis=0)
         position_share = np.stack([np.bincount(self.letters[subset, p], minlength=26) / len(subset)
-                                   for p in range(5)])
+                                   for p in range(self.length)])
         letters_score = self.has_letter @ letter_share
-        positions_score = position_share[np.arange(5), self.letters].sum(axis=1)
+        positions_score = position_share[np.arange(self.length), self.letters].sum(axis=1)
         return letters_score, positions_score
 
     def _compute(self, history):
-        k = Knowledge(history)
+        k = Knowledge(history, self.length)
         candidates = np.flatnonzero(self._possible(k))
         possible_letters, possible_positions = self._commonness(candidates)
         facts = np.column_stack([self.distinct, possible_letters, possible_positions]).astype(float)

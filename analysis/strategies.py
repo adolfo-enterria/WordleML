@@ -20,24 +20,25 @@ class GreedySplitAgent(Agent):
         self.pool = featurizer.pool
         self.criterion = criterion
         self.name = f"greedy-{criterion}"
-        self._first = None  # turn 1 never changes
+        self._choice = {}  # a fixed rule: the same possible words always get the same guess
 
     def choose(self, history):
         possible = self.featurizer.candidates(history)
         if len(possible) == 1:
             return self.pool[possible[0]]
-        if not history and self._first is not None:
-            return self._first
+        key = possible.tobytes()
+        if key not in self._choice:
+            self._choice[key] = self._best(possible)
+        return self._choice[key]
+
+    def _best(self, possible):
         stats = self.featurizer.split_stats(possible)
         cost = stats["bits_left"] if self.criterion == "entropy" else stats["sum_sq"]
         could_win = np.zeros(len(self.pool), bool)
         could_win[possible] = True  # answers come first in the pool, so answer i is option i
         best = np.flatnonzero(cost <= cost.min() + 1e-9)
         winners = best[could_win[best]]
-        choice = self.pool[(winners if len(winners) else best)[0]]
-        if not history:
-            self._first = choice
-        return choice
+        return self.pool[(winners if len(winners) else best)[0]]
 
 
 class ForcedOpener(Agent):

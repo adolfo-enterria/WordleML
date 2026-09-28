@@ -9,13 +9,11 @@ import numpy as np  # noqa: E402
 
 SURFACE, INK, INK_2, MUTED = "#fcfcfb", "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS = "#e1e0d9", "#c3c2b7"
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]  # validated categorical slots 1-3
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]  # categorical slots 1-4 (validated palette order)
 OPTIMUM = 3.4201
 
 
-def _figure(width=8, height=4.5):
-    plt.rcParams["font.family"] = ["Segoe UI", "DejaVu Sans"]
-    fig, ax = plt.subplots(figsize=(width, height), facecolor=SURFACE)
+def _style(ax):
     ax.set_facecolor(SURFACE)
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
@@ -23,6 +21,12 @@ def _figure(width=8, height=4.5):
     ax.tick_params(colors=MUTED, labelcolor=INK_2, labelsize=9, length=0)
     ax.grid(axis="y", color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
+
+
+def _figure(width=8, height=4.5):
+    plt.rcParams["font.family"] = ["Segoe UI", "DejaVu Sans"]
+    fig, ax = plt.subplots(figsize=(width, height), facecolor=SURFACE)
+    _style(ax)
     return fig, ax
 
 
@@ -93,6 +97,45 @@ def dot_plot(rows, path, title, subtitle, highlight=None, reference=OPTIMUM):
     ax.set_xlim(lo, hi + (hi - lo) * 0.18)  # room for the value labels
     ax.set_xlabel("average guesses (all 2,315 answers)", color=INK_2, fontsize=9)
     _title(ax, title, subtitle)
+    _save(fig, path)
+
+
+def length_study(table, strategies, path):
+    """Left: average guesses by word length, one line per strategy. Right: bits per guess."""
+    plt.rcParams["font.family"] = ["Segoe UI", "DejaVu Sans"]
+    fig, (left, right) = plt.subplots(1, 2, figsize=(11, 4.6), facecolor=SURFACE,
+                                      gridspec_kw={"width_ratios": [1.5, 1]})
+    lengths = [e["length"] for e in table]
+    ends = []
+    for color, (kind, label) in zip(SERIES, strategies):
+        values = [e[kind][0] for e in table]
+        left.plot(lengths, values, color=color, linewidth=2, marker="o", markersize=5,
+                  markeredgecolor=SURFACE, markeredgewidth=1.5)
+        ends.append([values[-1], label, color])
+    ends.sort()
+    low, high = left.get_ylim()
+    for i in range(1, len(ends)):  # keep end labels apart
+        ends[i][0] = max(ends[i][0], ends[i - 1][0] + 0.055 * (high - low))
+    for y, label, color in ends:  # a colored key mark, so each label is tied to its line
+        left.plot([lengths[-1] + 0.2, lengths[-1] + 0.45], [y, y], color=color, linewidth=2.5,
+                  solid_capstyle="round", clip_on=False)
+        left.text(lengths[-1] + 0.55, y, label, color=INK_2, fontsize=8.5, va="center")
+    left.set_xlim(lengths[0] - 0.2, lengths[-1] + 2.9)
+    left.set_xticks(lengths)
+    left.set_xlabel("letters per word", color=INK_2, fontsize=9)
+    left.set_ylabel("average guesses (every answer once)", color=INK_2, fontsize=9)
+    _style(left)
+    _title(left, "Guesses needed, by word length", "Common-word lists; list sizes differ by length")
+
+    bits = [e["bits_per_guess"] for e in table]
+    right.bar(lengths, bits, width=0.6, color=SERIES[0])
+    for x, b in zip(lengths, bits):
+        right.text(x, b, f"{b:.2f}", ha="center", va="bottom", color=INK_2, fontsize=8.5)
+    right.set_xticks(lengths)
+    right.set_xlabel("letters per word", color=INK_2, fontsize=9)
+    right.set_ylabel("bits per guess", color=INK_2, fontsize=9)
+    _style(right)
+    _title(right, "Information per guess", "log2(answers) / average guesses (with look-ahead)")
     _save(fig, path)
 
 

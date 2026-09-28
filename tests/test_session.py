@@ -15,8 +15,15 @@ WORDS = load_words()
 
 @pytest.fixture(params=["any", "possible"])
 def session(request, tmp_path):
-    return TrainingSession(WORDS, target_games=20, seed=0, model_path=tmp_path / "agent.npz",
-                           mode=request.param, exam_words=WORDS[:50])
+    return TrainingSession("wordle5", target_games=20, seed=0, model_path=tmp_path / "agent.npz",
+                           mode=request.param, exam_size=50)
+
+
+def wait_for(condition, timeout=120):
+    deadline = time.time() + timeout
+    while not condition() and time.time() < deadline:
+        time.sleep(0.1)
+    assert condition()
 
 
 def learned_numbers(state):
@@ -101,6 +108,34 @@ def test_mode_switch_starts_fresh(session):
     state = session.snapshot()
     assert state["mode"] == other and state["games_played"] == 0
     assert all(v == 0 for v in learned_numbers(state))
+
+
+def test_switching_word_length(session):
+    for _ in range(3):
+        session.step()
+    session.set_words(4, official=False)
+    wait_for(lambda: session.snapshot()["words"]["preparing"] is None)
+    state = session.snapshot()
+    assert state["words"]["name"] == "common4" and state["words"]["length"] == 4
+    assert state["words"]["optimum"] is None and state["games_played"] == 0
+    assert state["status"] == "running"
+    run_until_idle(session)  # trains and finishes on 4-letter words
+    assert all(len(s) == 4 for _, s, _ in session.snapshot(since=0)["results"])
+    session.set_words(5, official=True)
+    wait_for(lambda: session.snapshot()["words"]["preparing"] is None)
+    assert session.snapshot()["words"]["optimum"] == 3.4201
+
+
+def test_lookahead_exam(session):
+    for _ in range(12):
+        session.step()
+    session.start_lookahead()
+    if session.mode == "possible":  # the look-ahead builds on the planner, so it only runs in "any" mode
+        assert session.snapshot()["lookahead"]["state"] == "idle"
+        return
+    wait_for(lambda: session.snapshot()["lookahead"]["state"] == "done", timeout=600)
+    result = session.snapshot()["lookahead"]
+    assert 1 <= result["avg"] <= 6 and result["games_trained"] >= 10
 
 
 def test_word_report(session):

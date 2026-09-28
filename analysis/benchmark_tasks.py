@@ -24,24 +24,36 @@ from agents.consistent_agent import ConsistentAgent  # noqa: E402
 from agents.features import Featurizer  # noqa: E402
 from agents.learning_agent import LearningAgent  # noqa: E402
 from agents.planning_agent import PlanningAgent  # noqa: E402
+from agents.lookahead import LookaheadAgent  # noqa: E402
 from agents.split_features import SplitFeaturizer  # noqa: E402
 from analysis.difficulty import TIE_SEED  # noqa: E402
 from analysis.strategies import FactSubsetAgent, ForcedOpener, GreedySplitAgent  # noqa: E402
-from wordle.words import load_words  # noqa: E402
+from wordle.patterns import pattern_table  # noqa: E402
+from wordle.words import DEFAULT_WORD_SET, load_word_set  # noqa: E402
 
+_word_set = None
 _words = None
 _featurizers = {}
 
 
-def init_worker():
-    global _words
-    _words = load_words()
+def init_worker(word_set=DEFAULT_WORD_SET):
+    use_words(word_set)
+
+
+def use_words(word_set):
+    """Point this worker at a word set (tasks for different word lengths can share one pool)."""
+    global _word_set, _words
+    if word_set != _word_set:
+        _word_set, _words = word_set, list(load_word_set(word_set).answers)
+        for key in [k for k in _featurizers if k[0] != word_set]:  # keep memory bounded
+            del _featurizers[key]
+        pattern_table.cache_clear()  # featurizers keep their own copy; don't hold old tables twice
 
 
 def _featurizer(kind):
-    key = "possible" if kind == "pg-possible" else "any"
+    key = (_word_set, "possible" if kind == "pg-possible" else "any")
     if key not in _featurizers:
-        _featurizers[key] = Featurizer(_words) if key == "possible" else SplitFeaturizer()
+        _featurizers[key] = Featurizer(_words) if key[1] == "possible" else SplitFeaturizer(_word_set)
     return _featurizers[key]
 
 
@@ -94,6 +106,7 @@ def _turn_records(featurizer, game):
 
 def evaluate_chunk(spec, secrets, record_turns=False):
     """Play each secret once. Learners use their best guesses with fixed tie-breaks."""
+    use_words(spec.get("word_set", _word_set))
     agent = build_strategy(spec)
     inner = agent.agent if isinstance(agent, ForcedOpener) else agent
     rows = []
@@ -109,8 +122,18 @@ def evaluate_chunk(spec, secrets, record_turns=False):
     return rows
 
 
-def train(kind, seed, games, check_words, marks, options=None):
+def lookahead_exam(state, width, secrets=None, word_set=None):
+    """The planner with these learned numbers, thinking `width` guesses ahead each turn, on every secret."""
+    use_words(word_set or _word_set)
+    started = time.time()
+    agent = LookaheadAgent(make("planner", state), width=width)
+    rows = [{"secret": s, "guesses": play_game(agent, s).guesses_used} for s in (secrets or _words)]
+    return {"rows": rows, "opener": agent.choose([]), "seconds": time.time() - started}
+
+
+def train(kind, seed, games, check_words, marks, options=None, word_set=None):
     """Train one learner from scratch; skill checks (best guesses on check_words) at the given marks."""
+    use_words(word_set or _word_set)
     started = time.time()
     agent = make(kind, seed=seed, options=options)
     agent.training = True
@@ -130,6 +153,7 @@ def train(kind, seed, games, check_words, marks, options=None):
             "curve": curve, "practice": practice, "seconds": time.time() - started}
 
 
-def top_openers(kind, state, options=None, k=10):
+def top_openers(kind, state, options=None, k=10, word_set=None):
     """The k first guesses the learner likes most."""
+    use_words(word_set or _word_set)
     return [word for word, _ in make(kind, state, options=options).top_choices([], k)]

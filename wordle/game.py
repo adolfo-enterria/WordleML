@@ -2,7 +2,7 @@
 from collections import Counter
 
 GREY, YELLOW, GREEN = 0, 1, 2
-WORD_LENGTH = 5
+WORD_LENGTH = 5   # the default; any length works (the secret word sets it)
 MAX_GUESSES = 6
 
 
@@ -13,7 +13,7 @@ def score_guess(guess, secret):
     then yellows, and a letter is never marked more times than it appears in
     the secret. E.g. secret ABBEY, guess BABES -> yellow yellow green green grey.
     """
-    feedback = [GREY] * WORD_LENGTH
+    feedback = [GREY] * len(guess)
     unmatched = Counter()
 
     # Pass 1: exact matches are green; remember the secret's leftover letters.
@@ -42,6 +42,7 @@ class WordleGame:
 
     def __init__(self, secret, valid_guesses=None, max_guesses=MAX_GUESSES):
         self.secret = secret.lower()
+        self.length = len(self.secret)
         self.valid_guesses = valid_guesses
         self.max_guesses = max_guesses
         self.history = []  # list of (guess, feedback) pairs
@@ -50,8 +51,8 @@ class WordleGame:
         word = word.lower()
         if self.over:
             raise ValueError("The game is already over.")
-        if len(word) != WORD_LENGTH or not word.isalpha():
-            raise ValueError(f"Guesses must be {WORD_LENGTH} letters.")
+        if len(word) != self.length or not word.isalpha():
+            raise ValueError(f"Guesses must be {self.length} letters.")
         if self.valid_guesses is not None and word not in self.valid_guesses:
             raise ValueError(f"'{word.upper()}' is not in the word list.")
         feedback = score_guess(word, self.secret)

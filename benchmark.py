@@ -2,6 +2,7 @@
 
     python benchmark.py              # full run (about 20-30 minutes)
     python benchmark.py --quick      # smoke test (a few minutes)
+    python benchmark.py --length-study   # how word length (3-8 letters) changes the game
 
 Protocol: every one of the 2,315 possible answers is played exactly once, with
 each strategy's best guesses and fixed tie-breaks, so a score has no luck in
@@ -47,13 +48,13 @@ LABELS = {
     "pg-any": "Policy gradient, any word (4 split facts)",
     "greedy-avg_left": "Hand-made: fewest words left on average",
     "greedy-entropy": "Hand-made: most information (max entropy)",
-    "planner": "Learned planner: V(m) + one-guess lookahead",
+    "planner": "Learned planner: V(m), plans one guess ahead",
 }
 
 FULL = {"seeds": 10, "pg_seeds": 5, "games": {"planner": 500, "pg-any": 1000, "pg-possible": 1000},
-        "ablation_seeds": 5, "random_seeds": 5, "check_words": 200, "top_openers": 10}
+        "ablation_seeds": 5, "random_seeds": 5, "check_words": 200, "top_openers": 10, "lookahead_widths": [5, 10]}
 QUICK = {"seeds": 2, "pg_seeds": 2, "games": {"planner": 40, "pg-any": 40, "pg-possible": 60},
-         "ablation_seeds": 1, "random_seeds": 1, "check_words": 40, "top_openers": 3}
+         "ablation_seeds": 1, "random_seeds": 1, "check_words": 40, "top_openers": 3, "lookahead_widths": [5]}
 MARKS = [0, 1, 3, 10, 30, 100, 200, 300, 500, 700, 1000]
 
 
@@ -97,7 +98,13 @@ def main():
     parser.add_argument("--quick", action="store_true", help="small, fast smoke test")
     parser.add_argument("--workers", type=int, default=min(6, max(1, (os.cpu_count() or 2) - 1)))
     parser.add_argument("--out", help="output folder (default reports/<date-time>)")
+    parser.add_argument("--length-study", action="store_true",
+                        help="compare word lengths 3-8 instead (see analysis/length_study.py)")
     args = parser.parse_args()
+    if args.length_study:
+        from analysis.length_study import run
+        run(args.workers, quick=args.quick, out=args.out)
+        return
 
     settings = QUICK if args.quick else FULL
     started = time.time()
@@ -159,9 +166,14 @@ def main():
         opener_jobs = {o: submit_eval(pool, {"kind": "planner", "state": median_state, "opener": o}, exam_words)
                        for o in openers}
         emergent_job = submit_eval(pool, {"kind": "planner", "state": median_state}, exam_words, record_turns=True)
+        lookahead_jobs = {width: pool.apply_async(tasks.lookahead_exam, (median_state, width, exam_words))
+                          for width in settings["lookahead_widths"]}
         opener_rows = {o: collect(jobs) for o, jobs in opener_jobs.items()}
         emergent_rows = collect(emergent_job)
-        log("openers done; word difficulty...")
+        lookahead = {width: job.get() for width, job in lookahead_jobs.items()}
+        for width, result in lookahead.items():
+            evaluated[(f"lookahead-w{width}", "main", 0)] = result["rows"]
+        log("openers and look-ahead done; word difficulty...")
 
     # 4. Word difficulty with the median planner (single process), and a regression over traits.
     agent = PlanningAgent(seed=0)
@@ -172,20 +184,24 @@ def main():
 
     report = write_outputs(out, settings, args, words, exam_words, check_words, marks, trained, evaluated,
                            ablations, median_seed, own_opener, top, opener_rows, emergent_rows,
-                           difficulty, traces, traits, time.time() - started)
+                           difficulty, traces, traits, lookahead, time.time() - started)
     log(f"done: {report}")
 
 
 def write_outputs(out, settings, args, words, exam_words, check_words, marks, trained, evaluated, ablations,
-                  median_seed, own_opener, top, opener_rows, emergent_rows, difficulty, traces, traits, seconds):
+                  median_seed, own_opener, top, opener_rows, emergent_rows, difficulty, traces, traits, lookahead,
+                  seconds):
     def runs(kind, variant="main"):
         return [rows for (k, v, _), rows in sorted(evaluated.items()) if k == kind and v == variant]
 
     # --- ladder ---------------------------------------------------------------
     ladder = []
-    for kind in ["random", "blank", "pg-possible", "pg-any", "greedy-avg_left", "greedy-entropy", "planner"]:
+    kinds = ["random", "blank", "pg-possible", "pg-any", "greedy-avg_left", "greedy-entropy", "planner"]
+    kinds += [f"lookahead-w{width}" for width in sorted(lookahead)]
+    for kind in kinds:
         s = summarize_runs(runs(kind))
-        ladder.append({"strategy": LABELS[kind], "kind": kind, **s})
+        label = LABELS.get(kind) or f"Learned planner + look-ahead ({kind.split('-w')[1]} candidates per turn)"
+        ladder.append({"strategy": label, "kind": kind, **s})
     with open(out / "ladder.csv", "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["strategy", "runs", "mean_guesses", "ci95", "worst", "share_within_6"])
@@ -224,6 +240,8 @@ def write_outputs(out, settings, args, words, exam_words, check_words, marks, tr
             w.writerow([word] + [f"{pw[k][i]:.3f}" for k in pw])
     comparisons = [(other, *paired_bootstrap(pw["planner"], pw[other]))
                    for other in ["greedy-entropy", "greedy-avg_left", "pg-any", "pg-possible", "random"]]
+    widest = f"lookahead-w{max(lookahead)}"
+    lookahead_gain = paired_bootstrap(pw[widest], pw["planner"])
 
     # --- openers -------------------------------------------------------------------
     opener_table = sorted(((o, float(np.mean([r["guesses"] for r in rows])), int(max(r["guesses"] for r in rows)))
@@ -286,16 +304,20 @@ def write_outputs(out, settings, args, words, exam_words, check_words, marks, tr
 
     report = render_report(settings, args, exam_words, check_words, ladder, best, within, comparisons,
                            opener_table, own_opener, top, spread, probing, traces, difficulty, regression, r2,
-                           ablation_rows, curves, seconds)
+                           ablation_rows, curves, lookahead, lookahead_gain, seconds)
     (out / "report.md").write_text(report, encoding="utf-8")
     return out / "report.md"
 
 
 def render_report(settings, args, exam_words, check_words, ladder, best, within, comparisons, opener_table,
                   own_opener, top, spread, probing, traces, difficulty, regression, r2, ablation_rows, curves,
-                  seconds):
+                  lookahead, lookahead_gain, seconds):
     planner = best["planner"]
     gap = planner["mean"] - OPTIMUM
+    width = max(lookahead)
+    ahead = best[f"lookahead-w{width}"]
+    ahead_gap = ahead["mean"] - OPTIMUM
+    full_list = len(exam_words) == 2315
     lines = [
         "# WordleML benchmark report",
         "",
@@ -319,6 +341,17 @@ def render_report(settings, args, exam_words, check_words, ladder, best, within,
         f"Worst game over all runs: {planner['worst']} guesses; {100 * planner['within6']:.2f}% solved within 6.",
         f"- It gets within 0.05 guesses of its final skill after about **{within} game{'' if within == 1 else 's'}** "
         "of practice.",
+        f"- Thinking further ahead at test time (look-ahead: for its top {width} guesses each turn, the exact "
+        f"expected number of guesses if it plays on; opener {lookahead[width]['opener'].upper()}) brings the median "
+        f"planner to **{ahead['mean']:.4f}**"
+        + (f", **{ahead_gap:+.4f} ({100 * ahead_gap / OPTIMUM:+.2f}%)** from the proven optimum" if full_list else "")
+        + f" (worst game {ahead['worst']}; {lookahead[width]['seconds'] / 60:.1f} minutes for every answer). "
+        f"Against the same planner without look-ahead: {lookahead_gain[0]:+.4f} guesses per game"
+        + (", an exact difference: over all the answers it plans for, look-ahead can't do worse than its planner. "
+           if full_list else " on this subset (look-ahead is only guaranteed to be no worse over ALL answers). ")
+        + f"Treating the answers as a sample of possible words, the 95% bootstrap CI is "
+        f"[{lookahead_gain[1]:+.4f}, {lookahead_gain[2]:+.4f}]: one-guess differences on single words are large "
+        "next to a 0.01 average, so a new word list could shift it.",
         "",
         "## Setup",
         "",

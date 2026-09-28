@@ -27,7 +27,7 @@ def word_traits(words):
     """Per-word traits that don't depend on any AI."""
     letters, counts = encode(words)
     look_alikes = {w: [] for w in words}
-    for pos in range(5):
+    for pos in range(len(words[0])):
         groups = {}
         for w in words:
             groups.setdefault(w[:pos] + "_" + w[pos + 1:], []).append(w)

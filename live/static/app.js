@@ -8,7 +8,8 @@
 const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 0]; // games per second; 0 = as fast as possible
 const TARGETS = [100, 250, 500, 1000, 2000, 5000];
 const POLL_MS = 250;
-const OPTIMUM = 3.4201; // proven best average with any valid word allowed (Bertsimas & Paskov; Selby)
+const EXAMPLES = { 3: "cat", 4: "rope", 5: "foyer", 6: "planet", 7: "kitchen", 8: "elephant" };
+let wordsName = null;
 const WEIGHT_LABELS = {
   distinct_letters: "Different letters in the word",
   possible_letters: "Common letters (among possible words)",
@@ -25,7 +26,7 @@ const games = [];       // practice games: {x, y, secret}
 const averages = [];    // rolling average of practice games: {x, y}
 const skillPoints = []; // skill checks: {x: games trained, y: average guesses}
 let windowSum = 0;
-let dragging = { speed: false, target: false };
+let dragging = { speed: false, target: false, length: false };
 let analysisKey = null;
 let skillChart = null;
 let practiceChart = null;
@@ -282,18 +283,65 @@ function render(state) {
   $("avg-legend").textContent = `Average of the last ${windowSize} games`;
   $("table-avg-head").textContent = `Avg of last ${windowSize}`;
   renderKnowledge(state.knowledge);
+  renderWords(state);
+  const optimum = state.words.optimum;
+  const vsOptimum = (avg) => optimum
+    ? `proven best possible is ${optimum} (+${(((avg - optimum) / optimum) * 100).toFixed(1)}%)`
+    : "no published optimum for this list";
   const exam = state.final_exam;
   $("exam").textContent = exam ? exam.avg.toFixed(3) : "–";
   $("exam-sub").textContent = exam
-    ? `worst game ${exam.worst}; proven best possible is ${OPTIMUM} (+${(((exam.avg - OPTIMUM) / OPTIMUM) * 100).toFixed(1)}%)` +
-      (state.mode === "possible" ? ", but that needs probe words, which this mode can't play" : "")
+    ? `worst game ${exam.worst}; ${vsOptimum(exam.avg)}` +
+      (state.mode === "possible" && optimum ? ", but that needs probe words, which this mode can't play" : "")
     : "when the run finishes";
+  const la = state.lookahead;
+  $("run-lookahead").disabled = state.mode !== "any" || la.state === "running" || state.games_played === 0;
+  $("lookahead").textContent = la.state === "done" ? la.avg.toFixed(3) : la.state === "running" ? "…" : "–";
+  $("lookahead-sub").textContent = state.mode !== "any" ? "needs \"Any valid word\" mode"
+    : la.state === "running" ? `thinking ahead on every word (the AI after ${la.games_trained} games)…`
+    : la.state === "done" ? `after ${la.games_trained} games, opener ${la.opener.toUpperCase()}, ` +
+      `${Math.round(la.seconds)} s; ${vsOptimum(la.avg)}`
+    : "same AI, weighing its top 10 guesses exactly each turn";
   renderLearned(state.learned, state.mode);
   renderOpeners(state.openers);
   renderAnalysisStatus(state.analysis);
 
   if (skillChart) skillChart.update("none");
   if (practiceChart) practiceChart.update("none");
+}
+
+// ---------------------------------------------------------------- word length
+
+let nAnswers = 2315;
+
+function renderWords(state) {
+  const w = state.words;
+  nAnswers = w.answers;
+  document.querySelectorAll(".n-answers").forEach((node) => { node.textContent = w.answers.toLocaleString("en-US"); });
+  document.querySelectorAll(".n-guesses").forEach((node) => { node.textContent = w.guesses.toLocaleString("en-US"); });
+  if (!dragging.length) {
+    const shown = w.preparing ? Number(w.preparing.replace(/\D/g, "")) : w.length;
+    $("length").value = shown;
+    $("length-label").textContent = `${shown} letters`;
+    $("official-box").hidden = shown !== 5;
+    if (!w.preparing) $("official").checked = w.official;
+  }
+  $("words-info").textContent = w.error ? `Couldn't prepare that list: ${w.error}`
+    : w.preparing ? `Preparing ${w.preparing.replace(/\D/g, "")}-letter words… (the first time can take ~20 s)`
+    : `${w.official ? "" : "Common words: "}${w.answers.toLocaleString("en-US")} possible answers · ${w.guesses.toLocaleString("en-US")} allowed guesses`;
+  if (w.preparing) {
+    $("status").textContent = "Preparing words…";
+    $("status").dataset.status = "paused";
+  }
+  $("lookup-word").maxLength = w.length;
+  $("lookup-word").placeholder = `e.g. ${EXAMPLES[w.length]}`;
+  if (wordsName !== null && wordsName !== w.name) $("lookup-result").replaceChildren();
+  wordsName = w.name;
+}
+
+function postWords() {
+  const length = Number($("length").value);
+  post("/api/words", { length, official: length === 5 && $("official").checked });
 }
 
 // ---------------------------------------------------------------- what it learned to do
@@ -352,7 +400,7 @@ function renderOpeners(openers) {
   $("openers-note").textContent = openers.games_to_compare
     ? "Single games vary a lot, so telling apart two openers that are 0.05 guesses apart would take about " +
       `${openers.games_to_compare.toLocaleString("en-US")} games with each. That's why the benchmark scores openers ` +
-      "exactly, on all 2,315 words, instead of by trial and error."
+      `exactly, on all ${nAnswers.toLocaleString("en-US")} words, instead of by trial and error.`
     : "";
 }
 
@@ -497,6 +545,14 @@ $("continue").addEventListener("click", () => post("/api/continue"));
 $("reset").addEventListener("click", () => post("/api/reset"));
 $("analyze").addEventListener("click", () => post("/api/analyze"));
 $("mode").addEventListener("change", () => post("/api/mode", { mode: $("mode").value }));
+$("run-lookahead").addEventListener("click", () => post("/api/lookahead"));
+$("length").addEventListener("input", () => {
+  dragging.length = true;
+  $("length-label").textContent = `${$("length").value} letters`;
+  $("official-box").hidden = Number($("length").value) !== 5;
+});
+$("length").addEventListener("change", async () => { await postWords(); dragging.length = false; });
+$("official").addEventListener("change", postWords);
 $("lookup").addEventListener("submit", (event) => {
   event.preventDefault();
   const word = $("lookup-word").value.trim();

@@ -3,7 +3,7 @@ from collections import Counter
 import numpy as np
 import pytest
 
-import agents.planning_agent as planning
+import agents.split_features as split_features
 from agents.base import play_game
 from agents.planning_agent import PlanningAgent
 from agents.split_features import SplitFeaturizer
@@ -32,9 +32,9 @@ def brute_force_cost(agent, possible_words, guess):
     return total / len(possible_words)
 
 
-@pytest.mark.parametrize("dense_above", [0, 10 ** 6])  # both ways of counting the groups
-def test_expected_cost_matches_brute_force(featurizer, monkeypatch, dense_above):
-    monkeypatch.setattr(planning, "DENSE_ABOVE", dense_above)
+@pytest.mark.parametrize("block_cells", [20_000, 10 ** 8])  # many small blocks of guesses, or one big one
+def test_expected_cost_matches_brute_force(featurizer, monkeypatch, block_cells):
+    monkeypatch.setattr(split_features, "BLOCK_CELLS", block_cells)
     agent = sensible(featurizer)
     history = [("stare", score_guess("stare", "nymph"))]
     possible = featurizer.candidates(history)

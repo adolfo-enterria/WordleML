@@ -12,8 +12,14 @@ learning can. The first check is at game 0, before any training.
 Modes (see agents/__init__.py): "any" is the planning agent, which may guess
 any valid word, including probe words that can't win; "possible" only guesses
 words that could still be the answer. Changing the mode starts a fresh run.
-When a run finishes it also takes a "final exam": every one of the 2,315
-answers once, which is the number to compare with the proven optimum (3.4201).
+When a run finishes it also takes a "final exam": every possible answer once.
+For the official Wordle list that's the number to compare with the proven
+optimum (3.4201). A "look-ahead exam" can also be run on demand: the same AI,
+but thinking further ahead at each turn (agents/lookahead.py).
+
+Word sets (word length): the official 5-letter Wordle list by default, or common
+English words of 3-8 letters. Switching prepares the new set in the background
+(its pattern table takes up to ~20 s to build the first time) and starts fresh.
 
 From the practice games we also keep track of what the agent has learned to
 do: how often it probes, a recent example of a probe, whether it follows a
@@ -28,10 +34,14 @@ from collections import deque
 
 import numpy as np
 
-from agents import DEFAULT_MODEL, MODES, make_learner
+from agents import MODES, make_learner
+from agents import model_path as default_model_path
 from agents.base import play_game
 from agents.learning_agent import make_featurizer
+from agents.lookahead import LookaheadAgent
 from analysis.difficulty import analyze, trace_game, word_traits
+from wordle.patterns import pattern_table
+from wordle.words import DEFAULT_WORD_SET, LENGTHS, load_word_set, word_set_name
 
 RECENT_WINDOW = 50        # practice games in the rolling average
 EARLY_GAMES = 100         # most of the learning happens here, so check more often
@@ -42,39 +52,54 @@ STATS_WINDOW = 200        # recent practice games behind the "what it learned to
 PROBE_BUCKETS = [(2, 2, "2 words possible"), (3, 5, "3-5"), (6, 20, "6-20"), (21, 10 ** 6, "21 or more")]
 WEAK_OPENER = 100         # an opener that leaves more words than this wasn't much help
 SMALL_PROBE = 12          # probe examples are shown when at most this many words were possible
+LOOKAHEAD_WIDTH = 10      # candidate guesses the look-ahead exam weighs each turn
+OPTIMUM = {"wordle5": 3.4201}  # proven best average (Bertsimas & Paskov; Selby); none for other lists
 
 
 class TrainingSession:
-    def __init__(self, words, target_games=500, games_per_second=10, seed=None,
-                 model_path=DEFAULT_MODEL, mode="any", exam_words=None):
-        self.words = list(words)
-        self.exam_words = list(exam_words or self.words)
-        self.traits = word_traits(self.words)
-        rng = np.random.default_rng(SKILL_CHECK_SEED)
-        self.check_words = sorted(str(w) for w in rng.choice(self.words, SKILL_CHECK_WORDS, replace=False))
+    def __init__(self, word_set=DEFAULT_WORD_SET, target_games=500, games_per_second=10, seed=None,
+                 model_path=None, mode="any", exam_size=None):
+        self.model_path_override = model_path   # tests use a temporary file
+        self.exam_size = exam_size              # tests use a few words for a quick exam
         self.target_games = target_games
         self.games_per_second = games_per_second  # 0 means as fast as possible
-        self.model_path = model_path
         self.seeds = np.random.SeedSequence(seed)
         self.lock = threading.Lock()
         self._featurizers = {}
         self.mode = mode
+        self.preparing, self.words_error = None, None
+        self._use_words(word_set)
         self.featurizer(mode)
         self.status = "running"
         self.run_id = 0
         self._start_new_run()
 
+    def _use_words(self, name, featurizer=None):
+        """Switch every word-dependent piece to word set `name` (caller holds the lock, or __init__)."""
+        self.word_set = load_word_set(name)
+        self.words = list(self.word_set.answers)
+        self.exam_words = self.words[:self.exam_size] if self.exam_size else list(self.words)
+        self.traits = word_traits(self.words)
+        rng = np.random.default_rng(SKILL_CHECK_SEED)
+        count = min(SKILL_CHECK_WORDS, len(self.words))
+        self.check_words = sorted(str(w) for w in rng.choice(self.words, count, replace=False))
+        self.model_path = self.model_path_override or default_model_path(name)
+        self._featurizers = {key: f for key, f in self._featurizers.items() if key[0] == name}
+        if featurizer is not None:
+            self._featurizers[(name, self.mode)] = featurizer
+
     def featurizer(self, mode=None):
-        """One shared (read-only) featurizer per mode, built the first time it's needed."""
-        mode = mode or self.mode
-        if mode not in self._featurizers:
-            self._featurizers[mode] = make_featurizer(mode, self.words)
-        return self._featurizers[mode]
+        """One shared (read-only) featurizer per word set and mode, built the first time it's needed."""
+        key = (self.word_set.name, mode or self.mode)
+        if key not in self._featurizers:
+            self._featurizers[key] = make_featurizer(key[1], self.words, key[0])
+        return self._featurizers[key]
 
     def _start_new_run(self):
         """Fresh, untrained agent (all weights zero) and no results. Caller holds the lock."""
         agent_seed, secret_seed = self.seeds.spawn(2)
-        self.agent = make_learner(self.mode, self.words, seed=agent_seed, featurizer=self.featurizer())
+        self.agent = make_learner(self.mode, self.words, seed=agent_seed, featurizer=self.featurizer(),
+                                  word_set=self.word_set.name)
         self.agent.training = True
         self.secret_rng = np.random.default_rng(secret_seed)
         self.results = []       # practice games: (secret, guesses)
@@ -82,6 +107,7 @@ class TrainingSession:
         self.final_exam = None  # every answer once, when the run finishes
         self.next_check = 0     # games trained at which the next skill check is due
         self.analysis = {"state": "idle", "progress": 0.0, "games_trained": None, "result": None}
+        self.lookahead = {"state": "idle"}
         self.decisions = deque(maxlen=STATS_WINDOW)     # per game: [(words possible, was a probe)]
         self.weak_openers = deque(maxlen=STATS_WINDOW)  # per weak opener: did guess 2 use fresh letters?
         self.latest_probe = None
@@ -124,6 +150,36 @@ class TrainingSession:
             if self.status == "finished":
                 self.status = "running"
 
+    def set_words(self, length=5, official=True):
+        """Switch word length / list. Prepares the new word set in the background, then starts fresh."""
+        length = int(length)
+        if length not in LENGTHS:
+            raise ValueError(f"length must be {LENGTHS.start}-{LENGTHS.stop - 1}")
+        name = word_set_name(length, bool(official))
+        with self.lock:
+            if name == self.word_set.name or self.preparing:
+                return
+            self.preparing, self.words_error, self.status = name, None, "preparing"
+            mode = self.mode
+
+        def work():
+            try:
+                pattern_table(name)  # the slow part the first time (built and cached on disk)
+                featurizer = make_featurizer(mode, load_word_set(name).answers, name)
+                with self.lock:
+                    self._use_words(name, featurizer if mode == self.mode else None)
+                    self._start_new_run()
+                    self.status = "running"
+            except Exception as error:  # e.g. the word lists haven't been built
+                with self.lock:
+                    self.words_error = f"{type(error).__name__}: {error}"
+                    self.status = "paused"
+            finally:
+                with self.lock:
+                    self.preparing = None
+
+        threading.Thread(target=work, daemon=True).start()
+
     def set_speed(self, games_per_second):
         with self.lock:
             self.games_per_second = max(0, float(games_per_second))
@@ -149,7 +205,7 @@ class TrainingSession:
         return float(np.mean([play_game(frozen, w).guesses_used for w in self.check_words]))
 
     def exam(self, frozen):
-        """Every one of the 2,315 answers once: the number to compare with the proven optimum."""
+        """Every possible answer once: for the official list, the number to compare with the proven optimum."""
         guesses = np.array([play_game(frozen, w).guesses_used for w in self.exam_words])
         return {"avg": float(guesses.mean()), "worst": int(guesses.max()),
                 "within_six": float((guesses <= 6).mean())}
@@ -232,6 +288,29 @@ class TrainingSession:
                 if speed > 0:
                     time.sleep(max(0.0, 1 / speed - (time.perf_counter() - started)))
 
+    # --- look-ahead exam ----------------------------------------------------
+
+    def start_lookahead(self):
+        """Exam with look-ahead (in the background): the planner as it is now, thinking further ahead."""
+        with self.lock:
+            if self.mode != "any" or self.lookahead.get("state") == "running":
+                return
+            frozen, run_id, played = self.agent.frozen_copy(), self.run_id, len(self.results)
+            words = list(self.exam_words)
+            self.lookahead = {"state": "running", "games_trained": played}
+
+        def work():
+            started = time.perf_counter()
+            agent = LookaheadAgent(frozen, width=LOOKAHEAD_WIDTH)
+            guesses = np.array([play_game(agent, w).guesses_used for w in words])
+            with self.lock:
+                if run_id == self.run_id:
+                    self.lookahead = {"state": "done", "games_trained": played, "avg": float(guesses.mean()),
+                                      "worst": int(guesses.max()), "within_six": float((guesses <= 6).mean()),
+                                      "opener": agent.choose([]), "seconds": time.perf_counter() - started}
+
+        threading.Thread(target=work, daemon=True).start()
+
     # --- word difficulty ----------------------------------------------------
 
     def start_analysis(self):
@@ -308,6 +387,14 @@ class TrainingSession:
                 "check_interval": self.check_interval(),
                 "knowledge": self.agent.knowledge(),
                 "final_exam": self.final_exam,
+                "lookahead": dict(self.lookahead),
+                "words": {
+                    "name": self.word_set.name, "label": self.word_set.label, "length": self.word_set.length,
+                    "official": self.word_set.official, "answers": len(self.words),
+                    "guesses": len(self.word_set.guesses), "exam_words": len(self.exam_words),
+                    "optimum": OPTIMUM.get(self.word_set.name), "preparing": self.preparing,
+                    "error": self.words_error,
+                },
                 "stats": {
                     "skill_before": first,
                     "skill_now": latest[1] if latest else None,

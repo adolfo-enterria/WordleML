@@ -91,10 +91,16 @@ button:hover:not(:disabled) { border-color: var(--text-muted); }
 button:disabled { opacity: 0.4; cursor: default; }
 .slider { display: flex; align-items: center; gap: 8px; margin-left: 12px; font-size: 14px; color: var(--text-secondary); }
 .slider output { min-width: 84px; color: var(--text-primary); }
+.words-row { margin-bottom: 0; }
+.words-row .slider { margin-left: 0; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-secondary); margin-left: 12px; }
+.check[hidden] { display: none; }  /* the display rule above would otherwise override [hidden] */
+.tile button.small { margin-top: 8px; padding: 4px 12px; font-size: 13px; }
 select { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); }
 
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 600px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .tile, .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
 }

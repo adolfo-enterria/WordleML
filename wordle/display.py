@@ -21,9 +21,9 @@ def render_row(guess, feedback):
     return " ".join(tile(letter, state) for letter, state in zip(guess, feedback))
 
 
-def render_board(history, max_guesses=MAX_GUESSES):
+def render_board(history, max_guesses=MAX_GUESSES, length=5):
     lines = [render_row(guess, feedback) for guess, feedback in history]
-    empty = " ".join(f"{Style.DIM}[ ]{Style.RESET_ALL}" for _ in range(5))
+    empty = " ".join(f"{Style.DIM}[ ]{Style.RESET_ALL}" for _ in range(length))
     lines += [empty] * (max_guesses - len(history))
     return "\n".join(lines)
 

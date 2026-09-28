@@ -14,6 +14,18 @@
       <span id="status" class="status" data-status="connecting">Connecting…</span>
     </header>
 
+    <section class="controls words-row" aria-label="Word length">
+      <label class="slider">
+        Word length
+        <input id="length" type="range" min="3" max="8" step="1" value="5">
+        <output id="length-label">5 letters</output>
+      </label>
+      <label class="check" id="official-box">
+        <input id="official" type="checkbox" checked> Official Wordle list
+      </label>
+      <span id="words-info" class="muted"></span>
+    </section>
+
     <section class="controls" aria-label="Controls">
       <button id="pause" type="button">Pause</button>
       <button id="continue" type="button">Continue</button>
@@ -42,7 +54,8 @@
       <div class="tile"><div class="label">Skill before training</div><div class="value" id="skill-before">–</div><div class="sub">avg guesses at game 0 (blank AI)</div></div>
       <div class="tile"><div class="label">Skill now</div><div class="value" id="skill-now">–</div><div class="sub" id="skill-now-sub"></div></div>
       <div class="tile"><div class="label">Improvement</div><div class="value" id="improvement">–</div><div class="sub" id="improvement-sub"></div></div>
-      <div class="tile"><div class="label">Final exam (all 2,315 words)</div><div class="value" id="exam">–</div><div class="sub" id="exam-sub">when the run finishes</div></div>
+      <div class="tile"><div class="label">Final exam (all <span class="n-answers">2,315</span> words)</div><div class="value" id="exam">–</div><div class="sub" id="exam-sub">when the run finishes</div></div>
+      <div class="tile"><div class="label">Exam with look-ahead</div><div class="value" id="lookahead">–</div><div class="sub" id="lookahead-sub"></div><button id="run-lookahead" type="button" class="small">Run it</button></div>
     </section>
 
     <section class="card">
@@ -65,13 +78,13 @@
       <div class="card">
         <h2>How the blank AI plays (game 0)</h2>
         <div data-mode="any">
-          <p class="explain">It knows the rules: after each guess it keeps track of which of the 2,315 answers still match the colors, and for any word it can work out how that guess would split them. Once only one word is left it says it.</p>
+          <p class="explain">It knows the rules: after each guess it keeps track of which of the <span class="n-answers">2,315</span> answers still match the colors, and for any word it can work out how that guess would split them. Once only one word is left it says it.</p>
           <p class="explain">What it doesn't know is how costly a situation is: how many more guesses it will need with, say, 20 words still possible. A blank AI thinks every situation costs the same, so every guess looks equally good and it plays random valid words: about 6 guesses per game, some games dozens.</p>
-          <p class="explain">It learns that curve from its own games. Then, for each of the 12,972 words, it adds up how costly the leftover groups would be (winning right away costs nothing) and plays the cheapest. Nobody tells it when to test letters with a word that can't win, or when to go for the win: that comes out of the sum.</p>
+          <p class="explain">It learns that curve from its own games. Then, for each of the <span class="n-guesses">12,972</span> valid words, it adds up how costly the leftover groups would be (winning right away costs nothing) and plays the cheapest. Nobody tells it when to test letters with a word that can't win, or when to go for the win: that comes out of the sum.</p>
         </div>
         <div data-mode="possible" hidden>
-          <p class="explain">It knows the rules and only guesses words that could still be the answer, picking at random among them. That alone cuts the 2,315 words fast: typically ~130 left after one guess, ~9 after two, ~2 after three. So a blank AI already averages about 4.1 guesses.</p>
-          <p class="explain">In this mode it can never play a probe word, which is why it can't get much below ~3.6 no matter how long it trains.</p>
+          <p class="explain">It knows the rules and only guesses words that could still be the answer, picking at random among them. Each guess's colors rule out most of the <span class="n-answers">2,315</span> words, so even a blank AI finds the word in a handful of guesses (about 4.1 on the official list: typically ~130 words left after one guess, ~9 after two, ~2 after three).</p>
+          <p class="explain">In this mode it can never play a probe word (a word that can't win but tests several letters), which is why it can't reach the best scores no matter how long it trains.</p>
         </div>
       </div>
     </section>
@@ -110,16 +123,16 @@
 
     <section class="card" id="difficulty">
       <h2>What makes a word hard?</h2>
-      <p class="subtitle">Look up how the AI (as it is right now) plays any word, or analyze all 2,315 words to see which traits make words hard.</p>
+      <p class="subtitle">Look up how the AI (as it is right now) plays any word, or analyze all <span class="n-answers">2,315</span> words to see which traits make words hard.</p>
 
       <form id="lookup" class="lookup">
-        <input id="lookup-word" type="text" maxlength="5" placeholder="e.g. foyer" autocomplete="off" aria-label="Word to look up">
+        <input id="lookup-word" type="text" maxlength="8" placeholder="e.g. foyer" autocomplete="off" aria-label="Word to look up">
         <button type="submit">Show how it plays this word</button>
       </form>
       <div id="lookup-result" class="lookup-result"></div>
 
       <div class="analyze-row">
-        <button id="analyze" type="button">Analyze all 2,315 words</button>
+        <button id="analyze" type="button">Analyze all <span class="n-answers">2,315</span> words</button>
         <span id="analysis-status" class="muted"></span>
       </div>
       <div id="analysis" hidden>

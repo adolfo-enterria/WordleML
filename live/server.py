@@ -9,6 +9,8 @@
     POST /api/speed            body: {"games_per_second": 10}   (0 = as fast as possible)
     POST /api/target           body: {"games": 1000}
     POST /api/mode             body: {"mode": "any"} or {"mode": "possible"}   (starts a fresh run)
+    POST /api/words            body: {"length": 6, "official": false}         (prepares, then starts fresh)
+    POST /api/lookahead        run the look-ahead exam in the background
 """
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -45,7 +47,8 @@ def make_server(session, port=8765, host="127.0.0.1"):
 
         def do_POST(self):
             actions = {"/api/pause": session.pause, "/api/continue": session.resume,
-                       "/api/reset": session.reset, "/api/analyze": session.start_analysis}
+                       "/api/reset": session.reset, "/api/analyze": session.start_analysis,
+                       "/api/lookahead": session.start_lookahead}
             settings = {"/api/speed": ("games_per_second", session.set_speed),
                         "/api/target": ("games", session.set_target)}
             path = urlparse(self.path).path
@@ -56,6 +59,12 @@ def make_server(session, port=8765, host="127.0.0.1"):
                     session.set_mode(self._read_json()["mode"])
                 except (KeyError, ValueError, TypeError, json.JSONDecodeError):
                     return self._send_json({"error": 'expected {"mode": "any" or "possible"}'}, 400)
+            elif path == "/api/words":
+                try:
+                    body = self._read_json()
+                    session.set_words(int(body["length"]), bool(body.get("official", True)))
+                except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                    return self._send_json({"error": 'expected {"length": 3-8, "official": true/false}'}, 400)
             elif path in settings:
                 key, setter = settings[path]
                 try:

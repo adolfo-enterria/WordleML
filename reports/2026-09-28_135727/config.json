@@ -1,0 +1,458 @@
+{
+  "command": "benchmark.py --workers 4",
+  "date": "2026-09-28T14:05:56",
+  "seconds": 508,
+  "settings": {
+    "seeds": 10,
+    "pg_seeds": 5,
+    "games": {
+      "planner": 500,
+      "pg-any": 1000,
+      "pg-possible": 1000
+    },
+    "ablation_seeds": 5,
+    "random_seeds": 5,
+    "check_words": 200,
+    "top_openers": 10,
+    "lookahead_widths": [
+      5,
+      10
+    ]
+  },
+  "workers": 4,
+  "check_words": [
+    "above",
+    "admit",
+    "align",
+    "allay",
+    "amber",
+    "awash",
+    "badly",
+    "barge",
+    "basil",
+    "bayou",
+    "begin",
+    "begun",
+    "beret",
+    "bigot",
+    "biome",
+    "blade",
+    "block",
+    "booty",
+    "borne",
+    "bravo",
+    "breed",
+    "brink",
+    "brisk",
+    "carat",
+    "cavil",
+    "chess",
+    "cinch",
+    "clamp",
+    "class",
+    "cleft",
+    "climb",
+    "clout",
+    "comet",
+    "cower",
+    "cramp",
+    "creme",
+    "crepe",
+    "cress",
+    "crime",
+    "crimp",
+    "crone",
+    "crook",
+    "decoy",
+    "diary",
+    "diner",
+    "dizzy",
+    "dodge",
+    "dolly",
+    "donor",
+    "dowdy",
+    "drama",
+    "drawl",
+    "drone",
+    "dumpy",
+    "early",
+    "earth",
+    "eject",
+    "elbow",
+    "envoy",
+    "equal",
+    "erect",
+    "error",
+    "ethos",
+    "eying",
+    "fanny",
+    "fauna",
+    "feral",
+    "fever",
+    "field",
+    "filer",
+    "flake",
+    "flesh",
+    "floor",
+    "flute",
+    "focus",
+    "gaffe",
+    "gauge",
+    "gazer",
+    "glint",
+    "gloss",
+    "glyph",
+    "green",
+    "habit",
+    "hairy",
+    "hello",
+    "hippy",
+    "horse",
+    "hunky",
+    "hydro",
+    "idiom",
+    "iliac",
+    "inbox",
+    "jetty",
+    "jolly",
+    "jumbo",
+    "kneel",
+    "knife",
+    "knoll",
+    "ladle",
+    "leash",
+    "liver",
+    "magma",
+    "mania",
+    "manor",
+    "marry",
+    "mauve",
+    "maxim",
+    "meant",
+    "merge",
+    "molar",
+    "muddy",
+    "mulch",
+    "niece",
+    "noisy",
+    "nomad",
+    "north",
+    "optic",
+    "overt",
+    "pagan",
+    "palsy",
+    "pansy",
+    "paper",
+    "patsy",
+    "pecan",
+    "penal",
+    "peril",
+    "phone",
+    "pinto",
+    "pixie",
+    "plait",
+    "plead",
+    "pleat",
+    "plump",
+    "poesy",
+    "polka",
+    "prawn",
+    "proof",
+    "puppy",
+    "purer",
+    "purse",
+    "quark",
+    "rajah",
+    "range",
+    "refer",
+    "reign",
+    "retch",
+    "retry",
+    "rhino",
+    "river",
+    "rivet",
+    "roach",
+    "rocky",
+    "scoff",
+    "scoop",
+    "serif",
+    "sever",
+    "shark",
+    "shelf",
+    "silky",
+    "since",
+    "skimp",
+    "slick",
+    "slush",
+    "solve",
+    "speak",
+    "spend",
+    "splat",
+    "spook",
+    "spunk",
+    "spurn",
+    "stalk",
+    "steer",
+    "stout",
+    "straw",
+    "stung",
+    "swath",
+    "swoon",
+    "tacit",
+    "taker",
+    "tango",
+    "tense",
+    "tepid",
+    "throb",
+    "trait",
+    "trope",
+    "vapid",
+    "verge",
+    "visit",
+    "vogue",
+    "watch",
+    "weary",
+    "weigh",
+    "welsh",
+    "woken",
+    "women",
+    "worse",
+    "would",
+    "woven",
+    "wrist",
+    "wrung"
+  ],
+  "exam_words": 2315,
+  "marks": {
+    "planner": [
+      0,
+      1,
+      3,
+      10,
+      30,
+      100,
+      200,
+      300,
+      500
+    ],
+    "pg-any": [
+      0,
+      1,
+      3,
+      10,
+      30,
+      100,
+      200,
+      300,
+      500,
+      700,
+      1000
+    ],
+    "pg-possible": [
+      0,
+      1,
+      3,
+      10,
+      30,
+      100,
+      200,
+      300,
+      500,
+      700,
+      1000
+    ]
+  },
+  "median_planner_seed": 8,
+  "files": {
+    "answers.txt": "c216eac05a4f78fa749965e9fc8bf2c66c704a8c",
+    "allowed_guesses.txt": "ccf7adfd89f8177d1367224bdb73675f97e9d75b",
+    "patterns.npz": "399c86645dec58f13b8246b4361b6cca978dd751"
+  },
+  "versions": {
+    "python": "3.12.10",
+    "numpy": "2.4.2",
+    "platform": "Windows-11-10.0.26200-SP0"
+  },
+  "learned": {
+    "planner/main/0": [
+      1.035460554404824,
+      0.37871159981759533,
+      -0.019396807519874684
+    ],
+    "planner/main/1": [
+      1.0262377722827396,
+      0.39775908644146635,
+      -0.023875966533164327
+    ],
+    "planner/main/2": [
+      1.0603587956924903,
+      0.44206579629432324,
+      -0.02876251910917405
+    ],
+    "planner/main/3": [
+      1.0236962898843092,
+      0.362425598113618,
+      -0.016675906669507207
+    ],
+    "planner/main/4": [
+      1.044407379610521,
+      0.38504500328635866,
+      -0.021748422743606267
+    ],
+    "planner/main/5": [
+      0.9890055368070646,
+      0.4528197878594181,
+      -0.0341303586756579
+    ],
+    "planner/main/6": [
+      1.040579578996693,
+      0.39706784529191247,
+      -0.022114440745793867
+    ],
+    "planner/main/7": [
+      1.0594356201392494,
+      0.37626035929809004,
+      -0.01818253577034877
+    ],
+    "planner/main/8": [
+      1.0374184261196469,
+      0.4340665174432499,
+      -0.029134316018371013
+    ],
+    "planner/main/9": [
+      1.0371931315967442,
+      0.3898475617520406,
+      -0.022698268305848274
+    ],
+    "pg-any/main/0": [
+      0.014573871507263275,
+      -3.981819266406471,
+      -3.4878752315997583,
+      3.2226535964038616
+    ],
+    "pg-any/main/1": [
+      0.012103380863535834,
+      -3.8533715672378768,
+      -2.976043643312961,
+      3.271496350958217
+    ],
+    "pg-any/main/2": [
+      0.05096243131966719,
+      -3.939115625526291,
+      -3.2422140832362145,
+      3.18637361259177
+    ],
+    "pg-any/main/3": [
+      0.013470754465795938,
+      -3.7639129621155103,
+      -3.906015453039011,
+      2.88433645311922
+    ],
+    "pg-any/main/4": [
+      0.008285439762522075,
+      -3.7084611232179836,
+      -3.160802042112358,
+      3.314711477775963
+    ],
+    "pg-possible/main/0": [
+      0.6635318607442415,
+      1.8818473632070554,
+      2.4260719574545813
+    ],
+    "pg-possible/main/1": [
+      0.4395469537359979,
+      2.9591705271060893,
+      2.572335779695782
+    ],
+    "pg-possible/main/2": [
+      1.3506682778936314,
+      3.0758926767317267,
+      3.3618278442493112
+    ],
+    "pg-possible/main/3": [
+      1.5899279401170376,
+      0.29970723762785173,
+      1.307126541808237
+    ],
+    "pg-possible/main/4": [
+      1.107037024497881,
+      3.550053160856076,
+      2.3663819652001687
+    ],
+    "pg-possible/main/5": [
+      0.7653058044514888,
+      2.4162237313697585,
+      2.1694463051876443
+    ],
+    "pg-possible/main/6": [
+      -0.4604937890212141,
+      2.7213726388009807,
+      2.218077271292266
+    ],
+    "pg-possible/main/7": [
+      -0.1469085087488193,
+      2.765977476175907,
+      0.822931450547821
+    ],
+    "pg-possible/main/8": [
+      0.561526990219963,
+      3.1164439347939723,
+      1.826700560238551
+    ],
+    "pg-possible/main/9": [
+      0.7511356667392005,
+      3.0852607281406725,
+      3.1360191243134055
+    ],
+    "planner/no forgetting/0": [
+      1.0450632500526984,
+      0.40906629287695373,
+      -0.024580035434389257
+    ],
+    "planner/no forgetting/1": [
+      1.0385685385677141,
+      0.4091835570683901,
+      -0.024865706191123427
+    ],
+    "planner/no forgetting/2": [
+      1.0361985096356279,
+      0.40949099606022415,
+      -0.02349537610890765
+    ],
+    "planner/no forgetting/3": [
+      1.0581366371620162,
+      0.4064973633694114,
+      -0.021844796551342846
+    ],
+    "planner/no forgetting/4": [
+      1.0543467237984325,
+      0.41648330905580244,
+      -0.02412961328644836
+    ],
+    "planner/straight-line V (2 numbers)/0": [
+      1.151586320255114,
+      0.2413978023685486,
+      0.0
+    ],
+    "planner/straight-line V (2 numbers)/1": [
+      1.1199632857734985,
+      0.23010097256907708,
+      0.0
+    ],
+    "planner/straight-line V (2 numbers)/2": [
+      1.1940319064127527,
+      0.2549891040726687,
+      0.0
+    ],
+    "planner/straight-line V (2 numbers)/3": [
+      1.1305654732633539,
+      0.2617791035046863,
+      0.0
+    ],
+    "planner/straight-line V (2 numbers)/4": [
+      1.1622693070454486,
+      0.258262670497824,
+      0.0
+    ]
+  }
+}

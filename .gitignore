@@ -9,3 +9,4 @@ venv/
 data/patterns.npz
 # run logs
 *.log
+data/patterns_*.npz
