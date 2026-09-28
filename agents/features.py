@@ -31,6 +31,25 @@ def tie_ranks(n, seed=0):
     return np.random.default_rng(seed).permutation(n)
 
 
+def cheapest(cost, k, tie_rank):
+    """The k options with the lowest cost, cheapest first, skipping useless ones (cost inf).
+
+    Exact ties go by the fixed tie priority, and the first one is always the
+    option a tested planner would play itself (lowest cost, ties within
+    TIE_TOLERANCE by priority). Look-ahead and search both pick their
+    candidates here, so they always weigh the planner's own choice."""
+    finite = np.flatnonzero(np.isfinite(cost))
+    k = min(k, len(finite))
+    if k == 0:
+        return np.array([], dtype=np.int64)
+    threshold = np.partition(cost[finite], k - 1)[k - 1] + TIE_TOLERANCE
+    near = finite[cost[finite] <= threshold]
+    best = near[cost[near] <= cost[near].min() + TIE_TOLERANCE]
+    first = best[np.argmin(tie_rank[best])]
+    rest = near[np.lexsort((tie_rank[near], cost[near]))]
+    return np.r_[first, rest[rest != first]][:k].astype(np.int64)
+
+
 def standardize(facts):
     """Rescale each column to mean 0, spread 1. Columns where all words tie become 0.
 

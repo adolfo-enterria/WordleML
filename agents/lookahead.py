@@ -17,7 +17,7 @@ possible words, so the opener is worked out once and later turns reuse the work.
 import numpy as np
 
 from agents.base import Agent
-from agents.features import TIE_TOLERANCE
+from agents.features import TIE_TOLERANCE, cheapest
 
 
 class LookaheadAgent(Agent):
@@ -69,9 +69,7 @@ class LookaheadAgent(Agent):
             return self.pool[possible[0]]
         key = possible.tobytes()
         if key not in self._choice:
-            cost = self.base.expected_cost(possible)
-            candidates = np.argsort(cost, kind="stable")[:self.width]
-            candidates = candidates[np.isfinite(cost[candidates])]
+            candidates = cheapest(self.base.expected_cost(possible), self.width, self.featurizer.tie_rank)
             totals = np.array([self.after(g, possible) for g in candidates])
             best = candidates[totals <= totals.min() + TIE_TOLERANCE]
             self._choice[key] = best[np.argmin(self.featurizer.tie_rank[best])]
@@ -82,10 +80,8 @@ class LookaheadAgent(Agent):
         possible = self.featurizer.candidates(history)
         if len(possible) == 1:
             return [(self.pool[possible[0]], 1.0)]
-        cost = self.base.expected_cost(possible)
-        candidates = np.argsort(cost, kind="stable")[:self.width]
-        scored = sorted((1 + self.after(g, possible), self.featurizer.tie_rank[g], g)
-                        for g in candidates if np.isfinite(cost[g]))
+        candidates = cheapest(self.base.expected_cost(possible), self.width, self.featurizer.tie_rank)
+        scored = sorted((1 + self.after(g, possible), self.featurizer.tie_rank[g], g) for g in candidates)
         return [(self.pool[g], total) for total, _, g in scored[:k]]
 
     def expected_total(self, history=()):

@@ -25,6 +25,7 @@ from agents.features import Featurizer  # noqa: E402
 from agents.learning_agent import LearningAgent  # noqa: E402
 from agents.planning_agent import PlanningAgent  # noqa: E402
 from agents.lookahead import LookaheadAgent  # noqa: E402
+from agents.search import SearchAgent  # noqa: E402
 from agents.split_features import SplitFeaturizer  # noqa: E402
 from analysis.difficulty import TIE_SEED  # noqa: E402
 from analysis.strategies import FactSubsetAgent, ForcedOpener, GreedySplitAgent  # noqa: E402
@@ -129,6 +130,20 @@ def lookahead_exam(state, width, secrets=None, word_set=None):
     agent = LookaheadAgent(make("planner", state), width=width)
     rows = [{"secret": s, "guesses": play_game(agent, s).guesses_used} for s in (secrets or _words)]
     return {"rows": rows, "opener": agent.choose([]), "seconds": time.time() - started}
+
+
+def search_exam(state, width, secrets=None, word_set=None):
+    """The planner with these learned numbers guiding a full search (agents/search.py), on every secret.
+
+    The search always plans for ALL answers (that's what its total is over); `secrets` only
+    picks which games are played out for the rows."""
+    use_words(word_set or _word_set)
+    started = time.time()
+    agent = SearchAgent(make("planner", state), width=width)
+    total = agent.total()
+    rows = [{"secret": s, "guesses": play_game(agent, s).guesses_used} for s in (secrets or _words)]
+    return {"rows": rows, "total": int(total), "opener": agent.choose([]), "seconds": time.time() - started,
+            "nodes": agent.nodes, "openers": agent.openers}
 
 
 def train(kind, seed, games, check_words, marks, options=None, word_set=None):

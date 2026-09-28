@@ -14,11 +14,13 @@ any valid word, including probe words that can't win; "possible" only guesses
 words that could still be the answer. Changing the mode starts a fresh run.
 When a run finishes it also takes a "final exam": every possible answer once.
 For the official Wordle list that's the number to compare with the proven
-optimum (3.4201). A "look-ahead exam" can also be run on demand: the same AI,
-but thinking further ahead at each turn (agents/lookahead.py).
+optimum (7,920 guesses in total = 3.4212). Two more exams can be run on demand:
+"look-ahead" (the same AI thinking further ahead at each turn, agents/lookahead.py,
+seconds) and "search" (the AI's favourite guesses worked out exactly at every
+position, agents/search.py, a minute or more, in a separate process).
 
 Word sets (word length): the official 5-letter Wordle list by default, or common
-English words of 3-8 letters. Switching prepares the new set in the background
+English words of 3-10 letters. Switching prepares the new set in the background
 (its pattern table takes up to ~20 s to build the first time) and starts fresh.
 
 From the practice games we also keep track of what the agent has learned to
@@ -28,9 +30,11 @@ weak opener with fresh letters, and how each opener has worked out.
 The web dashboard reads everything with snapshot() and sends button presses to
 the control methods.
 """
+import multiprocessing
 import threading
 import time
 from collections import deque
+from queue import Empty
 
 import numpy as np
 
@@ -53,7 +57,8 @@ PROBE_BUCKETS = [(2, 2, "2 words possible"), (3, 5, "3-5"), (6, 20, "6-20"), (21
 WEAK_OPENER = 100         # an opener that leaves more words than this wasn't much help
 SMALL_PROBE = 12          # probe examples are shown when at most this many words were possible
 LOOKAHEAD_WIDTH = 10      # candidate guesses the look-ahead exam weighs each turn
-OPTIMUM = {"wordle5": 3.4201}  # proven best average (Bertsimas & Paskov; Selby); none for other lists
+SEARCH_WIDTH = 20         # candidate guesses the search exam works out at every position
+OPTIMUM = {"wordle5": 7920}  # proven best TOTAL over all answers (Selby: 7,920 / 2,315 = 3.4212); none for other lists
 
 
 class TrainingSession:
@@ -108,6 +113,7 @@ class TrainingSession:
         self.next_check = 0     # games trained at which the next skill check is due
         self.analysis = {"state": "idle", "progress": 0.0, "games_trained": None, "result": None}
         self.lookahead = {"state": "idle"}
+        self.search = {"state": "idle"}
         self.decisions = deque(maxlen=STATS_WINDOW)     # per game: [(words possible, was a probe)]
         self.weak_openers = deque(maxlen=STATS_WINDOW)  # per weak opener: did guess 2 use fresh letters?
         self.latest_probe = None
@@ -311,6 +317,44 @@ class TrainingSession:
 
         threading.Thread(target=work, daemon=True).start()
 
+    # --- search exam ---------------------------------------------------------
+
+    def start_search(self):
+        """Exam with search (agents/search.py), run in a separate process: the search is mostly
+        pure Python, and in a thread it would fight training for the GIL."""
+        with self.lock:
+            if self.mode != "any" or self.search.get("state") == "running":
+                return
+            coef, run_id, played = self.agent.coef.tolist(), self.run_id, len(self.results)
+            self.search = {"state": "running", "games_trained": played, "done": 0, "openers": None, "best": None}
+            name = self.word_set.name
+        context = multiprocessing.get_context("spawn")
+        queue = context.Queue()
+        process = context.Process(target=run_search, args=(name, coef, SEARCH_WIDTH, queue), daemon=True)
+        process.start()
+
+        def listen():
+            while True:
+                try:
+                    message = queue.get(timeout=1)
+                except Empty:
+                    message = None
+                with self.lock:
+                    if run_id != self.run_id:           # reset or new word list: stop thinking
+                        process.terminate()
+                        return
+                    if message is None:
+                        if not process.is_alive():
+                            self.search = {"state": "error", "games_trained": played}
+                            return
+                    elif message[0] == "progress":
+                        self.search.update(done=message[1], openers=message[2], best=message[3])
+                    else:
+                        self.search = {"state": "done", "games_trained": played, **message[1]}
+                        return
+
+        threading.Thread(target=listen, daemon=True).start()
+
     # --- word difficulty ----------------------------------------------------
 
     def start_analysis(self):
@@ -388,6 +432,7 @@ class TrainingSession:
                 "knowledge": self.agent.knowledge(),
                 "final_exam": self.final_exam,
                 "lookahead": dict(self.lookahead),
+                "search": dict(self.search),
                 "words": {
                     "name": self.word_set.name, "label": self.word_set.label, "length": self.word_set.length,
                     "official": self.word_set.official, "answers": len(self.words),
@@ -425,3 +470,20 @@ class TrainingSession:
     def analysis_result(self):
         with self.lock:
             return dict(self.analysis)
+
+
+def run_search(word_set, coef, width, queue):
+    """In a separate process: search with a planner holding these learned numbers, reporting progress."""
+    import os
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    from agents.planning_agent import PlanningAgent
+    from agents.search import SearchAgent
+    planner = PlanningAgent(word_set=word_set)
+    planner.coef = np.array(coef, float)
+    started = time.perf_counter()
+    agent = SearchAgent(planner, width=width, progress=lambda done, total, best: queue.put(("progress", done, total, best)))
+    total = agent.total()
+    games = np.array([len(guesses) for guesses in agent.strategy().values()])
+    queue.put(("done", {"total": int(total), "avg": float(games.mean()), "worst": int(games.max()),
+                        "within_six": float((games <= 6).mean()), "opener": agent.choose([]),
+                        "seconds": time.perf_counter() - started, "nodes": agent.nodes, "width": width}))

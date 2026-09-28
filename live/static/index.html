@@ -17,7 +17,7 @@
     <section class="controls words-row" aria-label="Word length">
       <label class="slider">
         Word length
-        <input id="length" type="range" min="3" max="8" step="1" value="5">
+        <input id="length" type="range" min="3" max="10" step="1" value="5">
         <output id="length-label">5 letters</output>
       </label>
       <label class="check" id="official-box">
@@ -49,13 +49,16 @@
       </label>
     </section>
 
-    <section class="tiles" aria-label="Stats">
+    <section class="tiles four" aria-label="Training">
       <div class="tile"><div class="label">Games trained</div><div class="value" id="games">–</div><div class="sub" id="games-sub"></div></div>
       <div class="tile"><div class="label">Skill before training</div><div class="value" id="skill-before">–</div><div class="sub">avg guesses at game 0 (blank AI)</div></div>
       <div class="tile"><div class="label">Skill now</div><div class="value" id="skill-now">–</div><div class="sub" id="skill-now-sub"></div></div>
       <div class="tile"><div class="label">Improvement</div><div class="value" id="improvement">–</div><div class="sub" id="improvement-sub"></div></div>
+    </section>
+    <section class="tiles exams" aria-label="Exams: every answer word once">
       <div class="tile"><div class="label">Final exam (all <span class="n-answers">2,315</span> words)</div><div class="value" id="exam">–</div><div class="sub" id="exam-sub">when the run finishes</div></div>
-      <div class="tile"><div class="label">Exam with look-ahead</div><div class="value" id="lookahead">–</div><div class="sub" id="lookahead-sub"></div><button id="run-lookahead" type="button" class="small">Run it</button></div>
+      <div class="tile"><div class="label">Exam with look-ahead</div><div class="value" id="lookahead">–</div><div class="sub" id="lookahead-sub"></div><button id="run-lookahead" type="button" class="small">Run it (seconds)</button></div>
+      <div class="tile"><div class="label">Exam with search</div><div class="value" id="search">–</div><div class="sub" id="search-sub"></div><button id="run-search" type="button" class="small">Run it (minutes)</button></div>
     </section>
 
     <section class="card">

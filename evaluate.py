@@ -2,6 +2,7 @@
 
     python evaluate.py                       # the trained AI for the official Wordle list
     python evaluate.py --lookahead           # ...thinking further ahead each turn (slower, better)
+    python evaluate.py --search              # ...searching every position exactly (minutes; saves the plan)
     python evaluate.py --length 6            # the trained AI for 6-letter common words
     python evaluate.py --agent consistent    # no strategy: a random word that's still possible
 """
@@ -11,12 +12,13 @@ import time
 import numpy as np
 from colorama import Back, Style, just_fix_windows_console
 
-from agents import AGENT_NAMES, make_agent, model_path
+from agents import AGENT_NAMES, make_agent, model_path, searched_plan
 from agents.base import play_game
 from agents.lookahead import LookaheadAgent
-from wordle.words import load_word_set, word_set_name
+from wordle.words import LENGTHS, load_word_set, word_set_name
 
 HISTOGRAM_BUCKETS = ["1", "2", "3", "4", "5", "6", "7+"]
+OPTIMUM_TOTAL = 7920  # the official list: proven best total over all 2,315 answers (Selby 2022)
 
 
 def evaluate(agent, secrets):
@@ -44,11 +46,13 @@ def print_report(name, stats, width=40):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--agent", choices=AGENT_NAMES, default="learning")
-    parser.add_argument("--length", type=int, default=5, choices=range(3, 9), help="word length (3-8)")
+    parser.add_argument("--length", type=int, default=5, choices=LENGTHS, help="word length (3-10)")
     parser.add_argument("--common", action="store_true", help="common-words list even at 5 letters")
     parser.add_argument("--model", help="weights file for the learning agent (default: the one for the word list)")
     parser.add_argument("--lookahead", type=int, nargs="?", const=10, default=0, metavar="WIDTH",
                         help="think ahead over the top WIDTH guesses each turn (default 10)")
+    parser.add_argument("--search", type=int, nargs="?", const=20, default=0, metavar="WIDTH",
+                        help="search every position over the top WIDTH guesses (default 20); saves the plan")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
     just_fix_windows_console()
@@ -57,13 +61,19 @@ def main():
     words = list(load_word_set(name).answers)
     agent = make_agent(args.agent, words, args.model or model_path(name), seed=args.seed)
     label = f"{args.agent} on {load_word_set(name).label}"
-    if args.lookahead:
-        if getattr(agent, "name", "") != "planner":
-            raise SystemExit("--lookahead needs a planner model (trained in \"Any valid word\" mode).")
+    started = time.perf_counter()
+    if (args.lookahead or args.search) and getattr(agent, "name", "") != "planner":
+        raise SystemExit("--lookahead and --search need a planner model (trained in \"Any valid word\" mode).")
+    if args.search:
+        agent, _ = searched_plan(agent, args.search, name)
+        label += f", search width {args.search}"
+    elif args.lookahead:
         agent = LookaheadAgent(agent, width=args.lookahead)
         label += f", look-ahead width {args.lookahead}"
-    started = time.perf_counter()
-    print_report(label, evaluate(agent, words))
+    stats = evaluate(agent, words)
+    print_report(label, stats)
+    print(f"\nTotal: {round(stats['avg_guesses'] * stats['games']):,} guesses over {stats['games']:,} games"
+          + (f" (proven best possible: {OPTIMUM_TOTAL:,})" if name == "wordle5" else ""))
     print(f"\n({time.perf_counter() - started:.0f} s)")
 
 

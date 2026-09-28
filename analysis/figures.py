@@ -10,7 +10,7 @@ import numpy as np  # noqa: E402
 SURFACE, INK, INK_2, MUTED = "#fcfcfb", "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS = "#e1e0d9", "#c3c2b7"
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]  # categorical slots 1-4 (validated palette order)
-OPTIMUM = 3.4201
+OPTIMUM = 3.4212   # 7,920 / 2,315: proven optimum for the original answer list (Selby)
 
 
 def _style(ax):
@@ -48,7 +48,7 @@ def learning_curves(curves, path, check_words):
     """curves: {label: (games array, mean array, ci array)}.
 
     No optimum line here on purpose: these are averages over a subset of check
-    words, which aren't comparable with the 3.4201 optimum over all answers."""
+    words, which aren't comparable with the 3.4212 optimum over all answers."""
     fig, ax = _figure()
     ends = []
     for color, (label, (games, mean, ci)) in zip(SERIES, curves.items()):
@@ -135,7 +135,7 @@ def length_study(table, strategies, path):
     right.set_xlabel("letters per word", color=INK_2, fontsize=9)
     right.set_ylabel("bits per guess", color=INK_2, fontsize=9)
     _style(right)
-    _title(right, "Information per guess", "log2(answers) / average guesses (with look-ahead)")
+    _title(right, "Information per guess", "log2(answers) / average guesses (with search)")
     _save(fig, path)
 
 

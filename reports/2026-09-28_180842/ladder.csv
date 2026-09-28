@@ -8,3 +8,7 @@ Hand-made: most information (max entropy),1,3.4635,nan,6,1.0000
 "Learned planner: V(m), plans one guess ahead",10,3.4380,0.0008,6,1.0000
 Learned planner + look-ahead (5 candidates per turn),1,3.4276,nan,6,1.0000
 Learned planner + look-ahead (10 candidates per turn),1,3.4246,nan,5,1.0000
+Learned planner + search (3 candidates per position),1,3.4259,nan,6,1.0000
+Learned planner + search (5 candidates per position),1,3.4233,nan,6,1.0000
+Learned planner + search (10 candidates per position),1,3.4212,nan,5,1.0000
+Learned planner + search (20 candidates per position),1,3.4212,nan,5,1.0000

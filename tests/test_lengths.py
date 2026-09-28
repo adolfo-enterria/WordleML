@@ -14,7 +14,7 @@ from wordle.wordlists import is_simple_plural
 from wordle.words import load_word_set, word_set_name
 
 
-@pytest.mark.parametrize("length", [3, 4, 6, 7, 8])
+@pytest.mark.parametrize("length", [3, 4, 6, 7, 8, 9, 10])
 def test_word_sets_load(length):
     ws = load_word_set(word_set_name(length, official=False))
     assert ws.length == length and not ws.official
@@ -36,7 +36,7 @@ def test_score_guess_any_length():
     assert game.won
 
 
-@pytest.mark.parametrize("length", [3, 6, 8])
+@pytest.mark.parametrize("length", [3, 6, 8, 10])
 def test_pattern_table_matches_score_guess(length):
     guesses, answers, table = pattern_table(word_set_name(length, official=False))
     rng = np.random.default_rng(length)
@@ -45,7 +45,7 @@ def test_pattern_table_matches_score_guess(length):
         assert decode_pattern(table[g, a], length) == score_guess(guesses[g], answers[a])
 
 
-@pytest.mark.parametrize("length", [3, 6, 8])
+@pytest.mark.parametrize("length", [3, 6, 9, 10])
 def test_rule_logic_matches_score_guess(length):
     """Both ways of tracking "still possible" agree with plain Wordle scoring."""
     name = word_set_name(length, official=False)
@@ -79,7 +79,7 @@ def test_planner_cost_matches_brute_force_six_letters():
     assert play_game(agent.frozen_copy(), "planet").won
 
 
-@pytest.mark.parametrize("name", ["common3", "wordle5", "common8"])
+@pytest.mark.parametrize("name", ["common3", "wordle5", "common8", "common10"])
 def test_group_sizes_same_for_few_and_many_words(name):
     """Few words left are compared pairwise, many are counted over all patterns: same sizes either way."""
     featurizer = SplitFeaturizer(name)

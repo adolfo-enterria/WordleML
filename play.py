@@ -7,6 +7,7 @@
     python play.py --watch --agent consistent --delay 0
     python play.py --length 6               # 6-letter words (you or --watch)
     python play.py --watch --lookahead      # watch the AI thinking further ahead
+    python play.py --watch --search         # watch the searched plan (searches first if there's none saved)
 """
 import argparse
 import random
@@ -14,11 +15,11 @@ import sys
 import time
 from pathlib import Path
 
-from agents import AGENT_NAMES, make_agent, model_path
+from agents import AGENT_NAMES, make_agent, model_path, searched_plan
 from agents.lookahead import LookaheadAgent
 from wordle.display import render_board, render_keyboard, render_row
 from wordle.game import MAX_GUESSES, WordleGame
-from wordle.words import load_valid_guesses, load_word_set, word_set_name
+from wordle.words import LENGTHS, load_valid_guesses, load_word_set, word_set_name
 
 
 def human_game(secret, valid_guesses):
@@ -50,7 +51,7 @@ def watch_game(agent, secret, delay, top):
     while not game.over:
         if hasattr(agent, "top_choices"):
             likes = agent.top_choices(game.history, top)
-            if agent.name in ("planner", "lookahead"):  # expected total guesses from here, lower is better
+            if agent.name in ("planner", "lookahead", "search"):  # expected total guesses from here, lower is better
                 print("   thinking: " + ", ".join(f"{w.upper()} ~{cost:.2f}" for w, cost in likes))
             else:                        # how likely it is to pick each word
                 print("   thinking: " + ", ".join(f"{w.upper()} {p:.0%}" if p >= 0.01 else f"{w.upper()} <1%"
@@ -67,9 +68,10 @@ def main():
     parser.add_argument("--watch", action="store_true", help="watch an AI play instead of playing yourself")
     parser.add_argument("--agent", choices=AGENT_NAMES, default="learning", help="which AI to watch")
     parser.add_argument("--model", help="weights file for the learning agent (default: the one for the word list)")
-    parser.add_argument("--length", type=int, default=5, choices=range(3, 9), help="word length (3-8)")
+    parser.add_argument("--length", type=int, default=5, choices=LENGTHS, help="word length (3-10)")
     parser.add_argument("--common", action="store_true", help="common-words list even at 5 letters")
     parser.add_argument("--lookahead", action="store_true", help="watch the AI think further ahead (planner only)")
+    parser.add_argument("--search", action="store_true", help="watch the searched plan (planner only)")
     parser.add_argument("--secret", help="the word to guess (default: random)")
     parser.add_argument("--delay", type=float, default=1.0, help="seconds between AI guesses")
     parser.add_argument("--top", type=int, default=5, help="how many favorite words to show")
@@ -92,9 +94,11 @@ def main():
     if args.agent == "learning" and not Path(path).exists():
         sys.exit(f"No trained model at {path}. Train one with the dashboard (python dashboard.py --length {args.length}).")
     agent = make_agent(args.agent, words, path)
-    if args.lookahead:
-        if getattr(agent, "name", "") != "planner":
-            sys.exit('--lookahead needs a planner model (trained in "Any valid word" mode).')
+    if (args.lookahead or args.search) and getattr(agent, "name", "") != "planner":
+        sys.exit('--lookahead and --search need a planner model (trained in "Any valid word" mode).')
+    if args.search:
+        agent, _ = searched_plan(agent, 20, name)
+    elif args.lookahead:
         agent = LookaheadAgent(agent)
     watch_game(agent, secret, args.delay, args.top)
 

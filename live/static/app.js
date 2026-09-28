@@ -8,7 +8,8 @@
 const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 0]; // games per second; 0 = as fast as possible
 const TARGETS = [100, 250, 500, 1000, 2000, 5000];
 const POLL_MS = 250;
-const EXAMPLES = { 3: "cat", 4: "rope", 5: "foyer", 6: "planet", 7: "kitchen", 8: "elephant" };
+const EXAMPLES = { 3: "cat", 4: "rope", 5: "foyer", 6: "planet", 7: "kitchen", 8: "elephant", 9: "adventure",
+  10: "background" };
 let wordsName = null;
 const WEIGHT_LABELS = {
   distinct_letters: "Different letters in the word",
@@ -284,10 +285,15 @@ function render(state) {
   $("table-avg-head").textContent = `Avg of last ${windowSize}`;
   renderKnowledge(state.knowledge);
   renderWords(state);
-  const optimum = state.words.optimum;
-  const vsOptimum = (avg) => optimum
-    ? `proven best possible is ${optimum} (+${(((avg - optimum) / optimum) * 100).toFixed(1)}%)`
-    : "no published optimum for this list";
+  const optimum = state.words.optimum;  // proven best TOTAL over every answer (official list only)
+  const count = (n) => n.toLocaleString("en-US");
+  const vsOptimum = (avg) => {
+    if (!optimum) return "no published optimum for this list";
+    const total = Math.round(avg * state.words.answers);
+    return total === optimum
+      ? `${count(total)} guesses in total: perfect play (the proven optimum)`
+      : `${count(total)} guesses in total; perfect play is ${count(optimum)} (${total > optimum ? "+" : ""}${count(total - optimum)})`;
+  };
   const exam = state.final_exam;
   $("exam").textContent = exam ? exam.avg.toFixed(3) : "–";
   $("exam-sub").textContent = exam
@@ -302,6 +308,17 @@ function render(state) {
     : la.state === "done" ? `after ${la.games_trained} games, opener ${la.opener.toUpperCase()}, ` +
       `${Math.round(la.seconds)} s; ${vsOptimum(la.avg)}`
     : "same AI, weighing its top 10 guesses exactly each turn";
+  const se = state.search;
+  $("run-search").disabled = state.mode !== "any" || se.state === "running" || state.games_played === 0;
+  $("search").textContent = se.state === "done" ? se.avg.toFixed(3) : se.state === "running" ? "…" : "–";
+  $("search-sub").textContent = state.mode !== "any" ? "needs \"Any valid word\" mode"
+    : se.state === "running"
+      ? (se.openers ? `opener ${se.done} of ${se.openers} worked out` + (se.best ? `; best so far ${count(se.best)} guesses in total` : "")
+        : "ranking openers…")
+    : se.state === "done" ? `after ${se.games_trained} games, opener ${se.opener.toUpperCase()}, ` +
+      `${Math.round(se.seconds)} s; ${vsOptimum(se.avg)}`
+    : se.state === "error" ? "the search stopped unexpectedly"
+    : "same AI's top 20 guesses at every position, worked out exactly to the end of every game";
   renderLearned(state.learned, state.mode);
   renderOpeners(state.openers);
   renderAnalysisStatus(state.analysis);
@@ -546,6 +563,7 @@ $("reset").addEventListener("click", () => post("/api/reset"));
 $("analyze").addEventListener("click", () => post("/api/analyze"));
 $("mode").addEventListener("change", () => post("/api/mode", { mode: $("mode").value }));
 $("run-lookahead").addEventListener("click", () => post("/api/lookahead"));
+$("run-search").addEventListener("click", () => post("/api/search"));
 $("length").addEventListener("input", () => {
   dragging.length = true;
   $("length-label").textContent = `${$("length").value} letters`;

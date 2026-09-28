@@ -2,7 +2,7 @@
 
 A word set is a list of possible answers plus the words you may guess:
   wordle5                 the official Wordle lists (2,315 answers, 12,972 guesses); the default
-  common3 ... common8     common English words of that length, built by `python -m wordle.wordlists`
+  common3 ... common10    common English words of that length, built by `python -m wordle.wordlists`
 """
 from dataclasses import dataclass
 from functools import lru_cache
@@ -15,7 +15,7 @@ ANSWERS_PATH = DATA_DIR / "answers.txt"
 ALLOWED_GUESSES_PATH = DATA_DIR / "allowed_guesses.txt"
 LISTS_DIR = DATA_DIR / "lists"
 DEFAULT_WORD_SET = "wordle5"
-LENGTHS = range(3, 9)
+LENGTHS = range(3, 11)
 
 
 @dataclass(frozen=True)

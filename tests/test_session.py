@@ -123,7 +123,7 @@ def test_switching_word_length(session):
     assert all(len(s) == 4 for _, s, _ in session.snapshot(since=0)["results"])
     session.set_words(5, official=True)
     wait_for(lambda: session.snapshot()["words"]["preparing"] is None)
-    assert session.snapshot()["words"]["optimum"] == 3.4201
+    assert session.snapshot()["words"]["optimum"] == 7920
 
 
 def test_lookahead_exam(session):
@@ -136,6 +136,29 @@ def test_lookahead_exam(session):
     wait_for(lambda: session.snapshot()["lookahead"]["state"] == "done", timeout=600)
     result = session.snapshot()["lookahead"]
     assert 1 <= result["avg"] <= 6 and result["games_trained"] >= 10
+
+
+def test_search_exam_runs_in_its_own_process(tmp_path, monkeypatch):
+    monkeypatch.setattr("live.session.SEARCH_WIDTH", 3)  # a small thinking budget keeps the test quick
+    session = TrainingSession("common3", target_games=20, seed=0, model_path=tmp_path / "agent.npz")
+    for _ in range(12):
+        session.step()
+    session.start_search()
+    wait_for(lambda: session.snapshot()["search"]["state"] in ("done", "error"), timeout=600)
+    result = session.snapshot()["search"]
+    assert result["state"] == "done"
+    assert result["total"] == round(result["avg"] * 669) and result["worst"] >= 2 and result["games_trained"] >= 10
+    session.reset()  # a new run forgets the old search
+    assert session.snapshot()["search"]["state"] == "idle"
+
+
+def test_search_exam_stops_on_reset(tmp_path):
+    session = TrainingSession("common3", target_games=20, seed=0, model_path=tmp_path / "agent.npz")
+    session.step()
+    session.start_search()
+    session.reset()
+    time.sleep(3)  # the listener notices the new run within a second and stops the process
+    assert session.snapshot()["search"]["state"] == "idle"
 
 
 def test_word_report(session):

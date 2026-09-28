@@ -2,7 +2,7 @@
 
     python benchmark.py              # full run (about 20-30 minutes)
     python benchmark.py --quick      # smoke test (a few minutes)
-    python benchmark.py --length-study   # how word length (3-8 letters) changes the game
+    python benchmark.py --length-study   # how word length (3-10 letters) changes the game
 
 Protocol: every one of the 2,315 possible answers is played exactly once, with
 each strategy's best guesses and fixed tie-breaks, so a score has no luck in
@@ -37,7 +37,12 @@ from analysis.stats import games_to_tell_apart, mean_ci, ols, paired_bootstrap  
 from wordle.patterns import CACHE_PATH, pattern_table  # noqa: E402
 from wordle.words import ALLOWED_GUESSES_PATH, ANSWERS_PATH, load_words  # noqa: E402
 
-OPTIMUM, HARD_MODE_OPTIMUM = 3.4201, 3.5076
+# Proven optima for the original 2,315 answers with all 12,972 guesses (Selby 2022): 7,920 and 8,122 total guesses.
+# (3.4201 and 3.5076, often quoted, are for the NYT's later 2,309-answer list: a different game.)
+OPTIMUM_TOTAL, HARD_MODE_TOTAL = 7920, 8122
+OPTIMUM, HARD_MODE_OPTIMUM = round(OPTIMUM_TOTAL / 2315, 4), round(HARD_MODE_TOTAL / 2315, 4)
+# Best total possible after each opener, proven by Selby (normal mode, original lists).
+PROVEN_OPENER_TOTALS = {"salet": 7920, "reast": 7923, "crate": 7926, "trace": 7926, "slate": 7928}
 LITERATURE_OPENERS = ["salet", "reast", "crate", "trace", "slate", "soare", "roate", "raise", "crane", "stare"]
 FAMILY_EXAMPLES = ["night", "catch", "mound", "shave", "foyer", "tight"]
 BUCKETS = [(2, 2, "2 words possible"), (3, 5, "3-5"), (6, 20, "6-20"), (21, 10 ** 6, "21 or more")]
@@ -52,9 +57,11 @@ LABELS = {
 }
 
 FULL = {"seeds": 10, "pg_seeds": 5, "games": {"planner": 500, "pg-any": 1000, "pg-possible": 1000},
-        "ablation_seeds": 5, "random_seeds": 5, "check_words": 200, "top_openers": 10, "lookahead_widths": [5, 10]}
+        "ablation_seeds": 5, "random_seeds": 5, "check_words": 200, "top_openers": 10, "lookahead_widths": [5, 10],
+        "search_widths": [3, 5, 10, 20]}
 QUICK = {"seeds": 2, "pg_seeds": 2, "games": {"planner": 40, "pg-any": 40, "pg-possible": 60},
-         "ablation_seeds": 1, "random_seeds": 1, "check_words": 40, "top_openers": 3, "lookahead_widths": [5]}
+         "ablation_seeds": 1, "random_seeds": 1, "check_words": 40, "top_openers": 3, "lookahead_widths": [5],
+         "search_widths": [3]}
 MARKS = [0, 1, 3, 10, 30, 100, 200, 300, 500, 700, 1000]
 
 
@@ -99,7 +106,7 @@ def main():
     parser.add_argument("--workers", type=int, default=min(6, max(1, (os.cpu_count() or 2) - 1)))
     parser.add_argument("--out", help="output folder (default reports/<date-time>)")
     parser.add_argument("--length-study", action="store_true",
-                        help="compare word lengths 3-8 instead (see analysis/length_study.py)")
+                        help="compare word lengths 3-10 instead (see analysis/length_study.py)")
     args = parser.parse_args()
     if args.length_study:
         from analysis.length_study import run
@@ -168,12 +175,19 @@ def main():
         emergent_job = submit_eval(pool, {"kind": "planner", "state": median_state}, exam_words, record_turns=True)
         lookahead_jobs = {width: pool.apply_async(tasks.lookahead_exam, (median_state, width, exam_words))
                           for width in settings["lookahead_widths"]}
+        search_jobs = {width: pool.apply_async(tasks.search_exam, (median_state, width, exam_words))
+                       for width in settings["search_widths"]}
         opener_rows = {o: collect(jobs) for o, jobs in opener_jobs.items()}
         emergent_rows = collect(emergent_job)
         lookahead = {width: job.get() for width, job in lookahead_jobs.items()}
         for width, result in lookahead.items():
             evaluated[(f"lookahead-w{width}", "main", 0)] = result["rows"]
-        log("openers and look-ahead done; word difficulty...")
+        search = {width: job.get() for width, job in search_jobs.items()}
+        for width, result in search.items():
+            evaluated[(f"search-w{width}", "main", 0)] = result["rows"]
+            if result["total"] < OPTIMUM_TOTAL:  # below a proven minimum: a bug, never a result
+                raise RuntimeError(f"search width {width} claims {result['total']} < proven optimum {OPTIMUM_TOTAL}")
+        log("openers, look-ahead and search done; word difficulty...")
 
     # 4. Word difficulty with the median planner (single process), and a regression over traits.
     agent = PlanningAgent(seed=0)
@@ -184,13 +198,13 @@ def main():
 
     report = write_outputs(out, settings, args, words, exam_words, check_words, marks, trained, evaluated,
                            ablations, median_seed, own_opener, top, opener_rows, emergent_rows,
-                           difficulty, traces, traits, lookahead, time.time() - started)
+                           difficulty, traces, traits, lookahead, search, time.time() - started)
     log(f"done: {report}")
 
 
 def write_outputs(out, settings, args, words, exam_words, check_words, marks, trained, evaluated, ablations,
                   median_seed, own_opener, top, opener_rows, emergent_rows, difficulty, traces, traits, lookahead,
-                  seconds):
+                  search, seconds):
     def runs(kind, variant="main"):
         return [rows for (k, v, _), rows in sorted(evaluated.items()) if k == kind and v == variant]
 
@@ -198,9 +212,12 @@ def write_outputs(out, settings, args, words, exam_words, check_words, marks, tr
     ladder = []
     kinds = ["random", "blank", "pg-possible", "pg-any", "greedy-avg_left", "greedy-entropy", "planner"]
     kinds += [f"lookahead-w{width}" for width in sorted(lookahead)]
+    kinds += [f"search-w{width}" for width in sorted(search)]
     for kind in kinds:
         s = summarize_runs(runs(kind))
-        label = LABELS.get(kind) or f"Learned planner + look-ahead ({kind.split('-w')[1]} candidates per turn)"
+        label = LABELS.get(kind) or (
+            f"Learned planner + look-ahead ({kind.split('-w')[1]} candidates per turn)" if kind.startswith("lookahead")
+            else f"Learned planner + search ({kind.split('-w')[1]} candidates per position)")
         ladder.append({"strategy": label, "kind": kind, **s})
     with open(out / "ladder.csv", "w", newline="") as f:
         w = csv.writer(f)
@@ -253,7 +270,7 @@ def write_outputs(out, settings, args, words, exam_words, check_words, marks, tr
     figures.dot_plot([(o.upper(), m, None) for o, m, _ in opener_table], out / "openers.png",
                      "Openers, each followed by the learned planner",
                      "Exact average over all answers; orange = the planner's own choice; dashed = proven "
-                     "optimum 3.4201 (SALET with perfect play after it)",
+                     f"optimum {OPTIMUM} (SALET with perfect play after it)",
                      highlight=own_opener.upper())
     spread = float(np.std([r["guesses"] for r in evaluated[("planner", "main", median_seed)]], ddof=1))
 
@@ -304,14 +321,61 @@ def write_outputs(out, settings, args, words, exam_words, check_words, marks, tr
 
     report = render_report(settings, args, exam_words, check_words, ladder, best, within, comparisons,
                            opener_table, own_opener, top, spread, probing, traces, difficulty, regression, r2,
-                           ablation_rows, curves, lookahead, lookahead_gain, seconds)
+                           ablation_rows, curves, lookahead, lookahead_gain, search, seconds)
     (out / "report.md").write_text(report, encoding="utf-8")
     return out / "report.md"
 
 
+def search_headline(search):
+    width = max(search)
+    best = search[width]
+    total = best["total"]
+    verdict = ("**exactly the proven optimum: perfect play**" if total == OPTIMUM_TOTAL
+               else f"{total - OPTIMUM_TOTAL:,} guesses above the proven optimum of {OPTIMUM_TOTAL:,}")
+    return (f"- Searching instead (at every position, the planner's top {width} guesses, each worked out exactly to "
+            f"the end of every game) plays all 2,315 answers in **{total:,} guesses in total = {total / 2315:.4f}**, "
+            f"{verdict}. Opener: {best['opener'].upper()}, chosen by the search; thinking time "
+            f"{best['seconds']:.0f} s. A proven optimum can't be beaten by any strategy, only matched.")
+
+
+def search_section(search, full_list):
+    """The thinking-budget sweep, and the openers checked against their proven best totals."""
+    lines = [
+        "## Search: more thinking time",
+        "",
+        "At every position the search considers the learned planner's top K guesses and works out exactly how many "
+        "guesses each leads to, to the end of every game (lower bounds and branch-and-bound prune what can't win; "
+        "no sampling). K is the thinking budget. Totals are over all 2,315 answers, so they are exact integers.",
+        "",
+        "| Candidates per position (K) | Total guesses | Average | Above the optimum | Opener | Time | Positions searched |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for width, r in sorted(search.items()):
+        lines.append(f"| {width} | {r['total']:,} | {r['total'] / 2315:.4f} | {r['total'] - OPTIMUM_TOTAL:+,} | "
+                     f"{r['opener'].upper()} | {r['seconds']:.0f} s | {r['nodes']:,} |")
+    widest = search[max(search)]
+    checked = [(w, rollout, found) for w, rollout, found in widest["openers"] if w in PROVEN_OPENER_TOTALS]
+    if checked:
+        lines += [
+            "",
+            f"Openers with a proven best total (Selby) against what the K = {max(search)} search found after them "
+            "(it may only match or exceed a proven best; \"cut off\" = proven unable to beat the best opener "
+            "within its candidates):",
+            "",
+            "| Opener | Proven best total | Search | Planner alone after it |",
+            "|---|---|---|---|",
+        ]
+        for word, rollout, found in checked:
+            lines.append(f"| {word.upper()} | {PROVEN_OPENER_TOTALS[word]:,} | "
+                         f"{'cut off' if found is None else f'{found:,}'} | {'–' if rollout is None else f'{rollout:,}'} |")
+    if not full_list:
+        lines += ["", "(Quick run: the search still plans for all 2,315 answers; its games are played on the subset.)"]
+    return lines + [""]
+
+
 def render_report(settings, args, exam_words, check_words, ladder, best, within, comparisons, opener_table,
                   own_opener, top, spread, probing, traces, difficulty, regression, r2, ablation_rows, curves,
-                  lookahead, lookahead_gain, seconds):
+                  lookahead, lookahead_gain, search, seconds):
     planner = best["planner"]
     gap = planner["mean"] - OPTIMUM
     width = max(lookahead)
@@ -352,6 +416,7 @@ def render_report(settings, args, exam_words, check_words, ladder, best, within,
         + f"Treating the answers as a sample of possible words, the 95% bootstrap CI is "
         f"[{lookahead_gain[1]:+.4f}, {lookahead_gain[2]:+.4f}]: one-guess differences on single words are large "
         "next to a 0.01 average, so a new word list could shift it.",
+        search_headline(search),
         "",
         "## Setup",
         "",
@@ -364,19 +429,23 @@ def render_report(settings, args, exam_words, check_words, ladder, best, within,
         "",
         "## How well each strategy plays",
         "",
-        "| Strategy | Runs | Average guesses | Worst | Solved within 6 |",
-        "|---|---|---|---|---|",
+        "| Strategy | Runs | Average guesses | Total guesses | Worst | Solved within 6 |",
+        "|---|---|---|---|---|---|",
     ]
     for row in ladder:
         ci = f" ± {row['ci']:.4f}" if row["runs"] > 1 else ""
-        lines.append(f"| {row['strategy']} | {row['runs']} | {row['mean']:.4f}{ci} | {row['worst']} | "
+        total = f"{round(row['mean'] * len(exam_words)):,}" if row["runs"] == 1 else ""
+        lines.append(f"| {row['strategy']} | {row['runs']} | {row['mean']:.4f}{ci} | {total} | {row['worst']} | "
                      f"{100 * row['within6']:.2f}% |")
     lines += [
-        f"| *Proven optimum, any valid guess (literature)* | | *{OPTIMUM}* | *5* | *100%* |",
-        f"| *Proven optimum, hard mode (literature)* | | *{HARD_MODE_OPTIMUM}* | | |",
+        f"| *Proven optimum, any valid guess (literature)* | | *{OPTIMUM}* | *{OPTIMUM_TOTAL:,}* | *5* | *100%* |",
+        f"| *Proven optimum, hard mode (literature)* | | *{HARD_MODE_OPTIMUM}* | *{HARD_MODE_TOTAL:,}* | | |",
         "",
         "![ladder](ladder.png)",
         "",
+    ]
+    lines += search_section(search, len(exam_words) == 2315)
+    lines += [
         "## Learning curves",
         "",
         "![learning curves](learning_curves.png)",
@@ -476,9 +545,11 @@ def render_report(settings, args, exam_words, check_words, ladder, best, within,
         "",
         "## Related work and how to read these numbers",
         "",
-        "- Exact optimum: 3.4201 average with SALET, proven by exhaustive search (Bertsimas & Paskov, *An Exact "
-        "and Interpretable Solution to Wordle*, 2022; A. Selby, 2022). Hard mode: about 3.5076. Summary: "
-        "https://www.poirrier.ca/notes/wordle-optimal/",
+        f"- Exact optimum for these lists (the original 2,315 answers, any of the 12,972 guesses): {OPTIMUM_TOTAL:,} "
+        f"total guesses = {OPTIMUM} average, with SALET, proven by exhaustive search (A. Selby, 2022, "
+        "https://sonorouschocolate.com/notes/index.php/The_best_strategies_for_Wordle; see also Bertsimas & "
+        f"Paskov 2022). Hard mode: {HARD_MODE_TOTAL:,} = {HARD_MODE_OPTIMUM}. The often-quoted 3.4201 and 3.5076 are "
+        "for the NYT's later 2,309-answer list, a different game. Summary: https://www.poirrier.ca/notes/wordle-optimal/",
         "- Reinforcement learning: rollout methods get near-optimal (Bhambri, Bhattacharjee & Bertsekas, "
         "arXiv:2211.10298); a deep RL agent reached about 3.9 guesses after hundreds of thousands of games "
         "(A. Ho, https://andrewkho.github.io/wordle-solver/).",

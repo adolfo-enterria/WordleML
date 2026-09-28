@@ -1,13 +1,14 @@
 # WordleML benchmark report
 
-Generated 2026-09-28 14:05 in 8 minutes (full run). Every number here can be regenerated with `python benchmark.py`; settings, seeds and file hashes are in `config.json`.
+Generated 2026-09-28 18:21 in 13 minutes (full run). Every number here can be regenerated with `python benchmark.py`; settings, seeds and file hashes are in `config.json`.
 
 ## Headline
 
 - A planner that learns one 3-number curve from its own games (how many more guesses it needs with m words still possible) and plans one guess ahead averages **3.4380 ± 0.0008** guesses over all 2,315 answers (10 independent training runs of 500 games each).
-- The proven optimum is **3.4201** (any valid guess allowed; Bertsimas & Paskov 2022, Selby 2022), so the learned planner is **+0.0179 guesses (+0.52%)** from perfect play. Worst game over all runs: 6 guesses; 100.00% solved within 6.
+- The proven optimum is **3.4212** (any valid guess allowed; Bertsimas & Paskov 2022, Selby 2022), so the learned planner is **+0.0168 guesses (+0.49%)** from perfect play. Worst game over all runs: 6 guesses; 100.00% solved within 6.
 - It gets within 0.05 guesses of its final skill after about **1 game** of practice.
-- Thinking further ahead at test time (look-ahead: for its top 10 guesses each turn, the exact expected number of guesses if it plays on; opener CRATE) brings the median planner to **3.4246**, **+0.0045 (+0.13%)** from the proven optimum (worst game 5; 0.2 minutes for every answer). Against the same planner without look-ahead: -0.0133 guesses per game, an exact difference: over all the answers it plans for, look-ahead can't do worse than its planner. Treating the answers as a sample of possible words, the 95% bootstrap CI is [-0.0428, +0.0154]: one-guess differences on single words are large next to a 0.01 average, so a new word list could shift it.
+- Thinking further ahead at test time (look-ahead: for its top 10 guesses each turn, the exact expected number of guesses if it plays on; opener CRATE) brings the median planner to **3.4246**, **+0.0034 (+0.10%)** from the proven optimum (worst game 5; 0.3 minutes for every answer). Against the same planner without look-ahead: -0.0133 guesses per game, an exact difference: over all the answers it plans for, look-ahead can't do worse than its planner. Treating the answers as a sample of possible words, the 95% bootstrap CI is [-0.0426, +0.0152]: one-guess differences on single words are large next to a 0.01 average, so a new word list could shift it.
+- Searching instead (at every position, the planner's top 20 guesses, each worked out exactly to the end of every game) plays all 2,315 answers in **7,920 guesses in total = 3.4212**, **exactly the proven optimum: perfect play**. Opener: SALET, chosen by the search; thinking time 60 s. A proven optimum can't be beaten by any strategy, only matched.
 
 ## Setup
 
@@ -18,27 +19,52 @@ Generated 2026-09-28 14:05 in 8 minutes (full run). Every number here can be reg
 
 ## How well each strategy plays
 
-| Strategy | Runs | Average guesses | Worst | Solved within 6 |
-|---|---|---|---|---|
-| No strategy: random word that could be the answer | 5 | 4.1037 ± 0.0173 | 9 | 98.30% |
-| Blank planner (game 0): random valid words | 1 | 5.2626 | 10 | 84.88% |
-| Policy gradient, only possible words (3 word facts) | 10 | 3.6084 ± 0.0130 | 8 | 99.43% |
-| Policy gradient, any word (4 split facts) | 5 | 3.4949 ± 0.0005 | 5 | 100.00% |
-| Hand-made: fewest words left on average | 1 | 3.4816 | 5 | 100.00% |
-| Hand-made: most information (max entropy) | 1 | 3.4635 | 6 | 100.00% |
-| Learned planner: V(m), plans one guess ahead | 10 | 3.4380 ± 0.0008 | 6 | 100.00% |
-| Learned planner + look-ahead (5 candidates per turn) | 1 | 3.4276 | 6 | 100.00% |
-| Learned planner + look-ahead (10 candidates per turn) | 1 | 3.4246 | 5 | 100.00% |
-| *Proven optimum, any valid guess (literature)* | | *3.4201* | *5* | *100%* |
-| *Proven optimum, hard mode (literature)* | | *3.5076* | | |
+| Strategy | Runs | Average guesses | Total guesses | Worst | Solved within 6 |
+|---|---|---|---|---|---|
+| No strategy: random word that could be the answer | 5 | 4.1037 ± 0.0173 |  | 9 | 98.30% |
+| Blank planner (game 0): random valid words | 1 | 5.2626 | 12,183 | 10 | 84.88% |
+| Policy gradient, only possible words (3 word facts) | 10 | 3.6084 ± 0.0130 |  | 8 | 99.43% |
+| Policy gradient, any word (4 split facts) | 5 | 3.4949 ± 0.0005 |  | 5 | 100.00% |
+| Hand-made: fewest words left on average | 1 | 3.4816 | 8,060 | 5 | 100.00% |
+| Hand-made: most information (max entropy) | 1 | 3.4635 | 8,018 | 6 | 100.00% |
+| Learned planner: V(m), plans one guess ahead | 10 | 3.4380 ± 0.0008 |  | 6 | 100.00% |
+| Learned planner + look-ahead (5 candidates per turn) | 1 | 3.4276 | 7,935 | 6 | 100.00% |
+| Learned planner + look-ahead (10 candidates per turn) | 1 | 3.4246 | 7,928 | 5 | 100.00% |
+| Learned planner + search (3 candidates per position) | 1 | 3.4259 | 7,931 | 6 | 100.00% |
+| Learned planner + search (5 candidates per position) | 1 | 3.4233 | 7,925 | 6 | 100.00% |
+| Learned planner + search (10 candidates per position) | 1 | 3.4212 | 7,920 | 5 | 100.00% |
+| Learned planner + search (20 candidates per position) | 1 | 3.4212 | 7,920 | 5 | 100.00% |
+| *Proven optimum, any valid guess (literature)* | | *3.4212* | *7,920* | *5* | *100%* |
+| *Proven optimum, hard mode (literature)* | | *3.5084* | *8,122* | | |
 
 ![ladder](ladder.png)
+
+## Search: more thinking time
+
+At every position the search considers the learned planner's top K guesses and works out exactly how many guesses each leads to, to the end of every game (lower bounds and branch-and-bound prune what can't win; no sampling). K is the thinking budget. Totals are over all 2,315 answers, so they are exact integers.
+
+| Candidates per position (K) | Total guesses | Average | Above the optimum | Opener | Time | Positions searched |
+|---|---|---|---|---|---|---|
+| 3 | 7,931 | 3.4259 | +11 | SALET | 32 s | 3,076 |
+| 5 | 7,925 | 3.4233 | +5 | SALET | 33 s | 3,781 |
+| 10 | 7,920 | 3.4212 | +0 | SALET | 34 s | 4,957 |
+| 20 | 7,920 | 3.4212 | +0 | SALET | 60 s | 13,415 |
+
+Openers with a proven best total (Selby) against what the K = 20 search found after them (it may only match or exceed a proven best; "cut off" = proven unable to beat the best opener within its candidates):
+
+| Opener | Proven best total | Search | Planner alone after it |
+|---|---|---|---|
+| CRATE | 7,926 | 7,927 | 7,948 |
+| TRACE | 7,926 | cut off | 7,949 |
+| SALET | 7,920 | 7,920 | 7,950 |
+| SLATE | 7,928 | cut off | 7,955 |
+| REAST | 7,923 | cut off | 7,959 |
 
 ## Learning curves
 
 ![learning curves](learning_curves.png)
 
-These are averages over the 200 check words only, so they can't be compared with the 3.4201 optimum over all 2,315 answers; the table above can.
+These are averages over the 200 check words only, so they can't be compared with the 3.4212 optimum over all 2,315 answers; the table above can.
 
 | Games trained | planner | policy gradient, any word | policy gradient, possible words |
 |---|---|---|---|
@@ -144,7 +170,7 @@ Linear regression of guesses per word on the traits (R² = 0.257; the rest is wh
 
 ## Related work and how to read these numbers
 
-- Exact optimum: 3.4201 average with SALET, proven by exhaustive search (Bertsimas & Paskov, *An Exact and Interpretable Solution to Wordle*, 2022; A. Selby, 2022). Hard mode: about 3.5076. Summary: https://www.poirrier.ca/notes/wordle-optimal/
+- Exact optimum for these lists (the original 2,315 answers, any of the 12,972 guesses): 7,920 total guesses = 3.4212 average, with SALET, proven by exhaustive search (A. Selby, 2022, https://sonorouschocolate.com/notes/index.php/The_best_strategies_for_Wordle; see also Bertsimas & Paskov 2022). Hard mode: 8,122 = 3.5084. The often-quoted 3.4201 and 3.5076 are for the NYT's later 2,309-answer list, a different game. Summary: https://www.poirrier.ca/notes/wordle-optimal/
 - Reinforcement learning: rollout methods get near-optimal (Bhambri, Bhattacharjee & Bertsekas, arXiv:2211.10298); a deep RL agent reached about 3.9 guesses after hundreds of thousands of games (A. Ho, https://andrewkho.github.io/wordle-solver/).
 - Word difficulty: see arXiv:2305.03502 for a study of which word attributes make Wordle words hard.
 - Limits: the planner is told the rules and can compute how any guess splits the remaining answers (one-step lookahead); what it learns is the value curve V(m). The 'split' idea is hand-designed, so the honest claim is sample efficiency and interpretability with a tiny learned model, not learning from raw pixels or letters.

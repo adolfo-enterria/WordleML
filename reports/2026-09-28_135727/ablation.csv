@@ -1,4 +1,0 @@
-variant,mean_guesses,ci95
-"full planner (curved V, forgetting)",3.4380,0.0008
-no forgetting,3.4380,0.0000
-straight-line V (2 numbers),3.4756,0.0103

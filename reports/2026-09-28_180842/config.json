@@ -1,7 +1,7 @@
 {
-  "command": "benchmark.py",
-  "date": "2026-09-28T10:13:19",
-  "seconds": 1009,
+  "command": "benchmark.py --workers 4",
+  "date": "2026-09-28T18:21:31",
+  "seconds": 767,
   "settings": {
     "seeds": 10,
     "pg_seeds": 5,
@@ -13,9 +13,19 @@
     "ablation_seeds": 5,
     "random_seeds": 5,
     "check_words": 200,
-    "top_openers": 10
+    "top_openers": 10,
+    "lookahead_widths": [
+      5,
+      10
+    ],
+    "search_widths": [
+      3,
+      5,
+      10,
+      20
+    ]
   },
-  "workers": 6,
+  "workers": 4,
   "check_words": [
     "above",
     "admit",

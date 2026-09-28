@@ -16,7 +16,7 @@ import webbrowser
 
 from live.server import make_server
 from live.session import TrainingSession
-from wordle.words import word_set_name
+from wordle.words import LENGTHS, word_set_name
 
 
 def main():
@@ -27,7 +27,7 @@ def main():
     parser.add_argument("--seed", type=int, default=None, help="fix the randomness to repeat a run")
     parser.add_argument("--mode", choices=["any", "possible"], default="any",
                         help="any: may guess any valid word (can probe); possible: only words that could win")
-    parser.add_argument("--length", type=int, default=5, choices=range(3, 9), help="word length (3-8)")
+    parser.add_argument("--length", type=int, default=5, choices=LENGTHS, help="word length (3-10)")
     parser.add_argument("--common", action="store_true",
                         help="use the common-words list even at 5 letters (default: official Wordle list)")
     parser.add_argument("--model", default=None, help="where to save the trained AI (default: per word set)")
