@@ -47,8 +47,11 @@ def watch_game(agent, secret, delay, top):
     while not game.over:
         if hasattr(agent, "top_choices"):
             likes = agent.top_choices(game.history, top)
-            print("   thinking: " + ", ".join(f"{w.upper()} {p:.0%}" if p >= 0.01 else f"{w.upper()} <1%"
-                                          for w, p in likes))
+            if agent.name == "planner":  # expected total guesses from here, lower is better
+                print("   thinking: " + ", ".join(f"{w.upper()} ~{cost:.2f}" for w, cost in likes))
+            else:                        # how likely it is to pick each word
+                print("   thinking: " + ", ".join(f"{w.upper()} {p:.0%}" if p >= 0.01 else f"{w.upper()} <1%"
+                                              for w, p in likes))
         guess = agent.choose(game.history)
         feedback = game.guess(guess)
         print(f"   {render_row(guess, feedback)}\n")

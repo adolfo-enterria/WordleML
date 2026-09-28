@@ -2,7 +2,8 @@ import numpy as np
 import pytest
 
 from agents.features import FEATURE_NAMES, Featurizer
-from agents.learning_agent import LearningAgent, standardize
+from agents.features import standardize
+from agents.learning_agent import LearningAgent
 from agents.base import play_game
 from wordle.game import score_guess
 from wordle.words import load_words

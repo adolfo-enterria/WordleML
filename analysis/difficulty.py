@@ -57,23 +57,29 @@ def best_game(agent, secret):
 
 
 def trace_game(agent, secret):
-    """Play one game with the AI's best guesses and record how many words were left after each."""
+    """Play one game with the AI's best guesses. For each guess: the colors, how many
+    words were still possible afterwards, and whether it was a probe (a word that
+    couldn't have been the answer, played to test letters)."""
     game = best_game(agent, secret)
+    pool_words = agent.pool
     steps = []
-    for turn, (guess, feedback) in enumerate(game.history, 1):
-        left = int(agent.featurizer.possible(game.history[:turn]).sum())
-        steps.append({"guess": guess, "feedback": list(feedback), "words_left": left})
+    for turn, (guess, feedback) in enumerate(game.history):
+        before = {pool_words[i] for i in agent.featurizer.candidates(game.history[:turn])}
+        left = len(agent.featurizer.candidates(game.history[:turn + 1]))
+        steps.append({"guess": guess, "feedback": list(feedback), "words_left": left,
+                      "words_before": len(before), "probe": guess not in before})
     return steps
 
 
-def analyze(agent, words, traits=None, progress=None):
-    """Play every word once with the AI and summarize which traits make words hard."""
+def analyze(agent, words, traits=None, progress=None, keep_rows=False):
+    """Play every word once with the AI and summarize which traits make words hard.
+    keep_rows=True also returns every word's row (the benchmark's regression needs them)."""
     traits = traits or word_traits(words)
     rows = []
     for i, secret in enumerate(words):
         game = best_game(agent, secret)
         opener = game.history[0][0]
-        left = int(agent.featurizer.possible(game.history[:1]).sum()) if game.guesses_used > 1 else 0
+        left = len(agent.featurizer.candidates(game.history[:1])) if game.guesses_used > 1 else 0
         rows.append({"word": secret, "guesses": game.guesses_used, "opener": opener,
                      "left_after_opener": left, **traits[secret],
                      "look_alike_count": len(traits[secret]["look_alikes"])})
@@ -105,7 +111,8 @@ def analyze(agent, words, traits=None, progress=None):
                                     (quartile == 0, "rarest letters (bottom 25%)")]),
     }
     hardest = sorted(rows, key=lambda r: (-r["guesses"], r["word"]))[:15]
-    return {
+    extra = {"rows": rows} if keep_rows else {}
+    return extra | {
         "words": len(rows),
         "avg_guesses": float(guesses.mean()),
         "opener": opener,

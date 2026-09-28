@@ -21,6 +21,25 @@ FEATURE_NAMES = [
 ]
 N_FEATURES = len(FEATURE_NAMES)
 
+TIE_TOLERANCE = 1e-9  # scores closer than this are a real tie (not just "almost the same")
+
+
+def tie_ranks(n, seed=0):
+    """A fixed, random-looking priority for every word, used to break exact ties
+    when an agent is being tested rather than practicing. Same agent + same
+    word = same game, everywhere (dashboard, evaluate.py, benchmark, lookups)."""
+    return np.random.default_rng(seed).permutation(n)
+
+
+def standardize(facts):
+    """Rescale each column to mean 0, spread 1. Columns where all words tie become 0.
+
+    This way one weight means the same on turn 1 with 2,315 options as on
+    turn 4 with 5."""
+    spread = facts.std(axis=0)
+    safe = np.where(spread > 0, spread, 1.0)
+    return np.where(spread > 0, (facts - facts.mean(axis=0)) / safe, 0.0)
+
 
 class Knowledge:
     """Everything the feedback so far tells us, in array form."""
@@ -48,11 +67,17 @@ class Knowledge:
 
 
 class Featurizer:
+    """Facts for an AI that only guesses words that could still be the answer."""
+    names = FEATURE_NAMES
+    standardized = True
+
     def __init__(self, words):
         self.words = list(words)
+        self.pool = self.words  # the words it may guess
         self.letters, self.counts = encode(self.words)
         self.has_letter = self.counts > 0
         self.distinct = self.has_letter.sum(axis=1)
+        self.tie_rank = tie_ranks(len(self.words))
         self._first_turn = self._compute([])  # turn 1 never changes, so cache it
 
     def possible(self, history):
@@ -76,6 +101,15 @@ class Featurizer:
         left_out = np.maximum(k.min_count[present] - self.counts[:, present], 0).sum(axis=1)
         grey = np.maximum(self.counts[:, capped] - k.max_count[capped], 0).sum(axis=1)
         return (greens_moved + yellow_same_spot + left_out + grey) == 0
+
+    def candidates(self, history):
+        """Indices of the words that still match every color seen so far."""
+        return np.flatnonzero(self.possible(history))
+
+    def state(self, history):
+        """(options, facts, possible): here the options are exactly the possible words."""
+        candidates, facts = self.features(history)
+        return candidates, standardize(facts), candidates
 
     def features(self, history):
         """Return (candidates, facts): indices of the still-possible words, and

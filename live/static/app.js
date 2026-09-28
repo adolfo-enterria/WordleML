@@ -1,24 +1,29 @@
 // Live training dashboard. Polls the Python server (live/server.py) and draws:
 //  - the skill-check curve (same words, best guesses: what the AI has learned)
 //  - the practice games it learns from (random words, some exploring)
-//  - its 3 weights, and the word-difficulty analysis / lookup.
+//  - its weights, what it learned to do (probing), the openers it tried,
+//  - and the word-difficulty analysis / lookup.
 // All the learning happens in Python (live/session.py).
 
 const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 0]; // games per second; 0 = as fast as possible
 const TARGETS = [100, 250, 500, 1000, 2000, 5000];
 const POLL_MS = 250;
+const OPTIMUM = 3.4201; // proven best average with any valid word allowed (Bertsimas & Paskov; Selby)
 const WEIGHT_LABELS = {
   distinct_letters: "Different letters in the word",
   possible_letters: "Common letters (among possible words)",
   possible_positions: "Letters in their common spots",
+  win_chance: "Chance it's the answer (go for the win)",
+  avg_left: "Words left afterwards, on average",
+  worst_left: "Words left in the worst case",
+  patterns: "Different color patterns it can produce",
 };
 
 let runId = null;
 let windowSize = 50;
 const games = [];       // practice games: {x, y, secret}
 const averages = [];    // rolling average of practice games: {x, y}
-const skillPoints = [];    // skill checks, best guesses: {x: games trained, y: average guesses}
-const practicePoints = []; // skill checks, playing like in practice (exploring)
+const skillPoints = []; // skill checks: {x: games trained, y: average guesses}
 let windowSum = 0;
 let dragging = { speed: false, target: false };
 let analysisKey = null;
@@ -76,23 +81,21 @@ function makeCharts(targetGames) {
     return;
   }
   const skillOptions = baseOptions(targetGames, "games trained", "average guesses");
-  skillOptions.scales.y.suggestedMin = 3.4;
+  skillOptions.scales.y.suggestedMin = 3.3;
   skillOptions.scales.y.suggestedMax = 4.4;
-  skillOptions.plugins.tooltip.filter = (item) => item.datasetIndex !== 2;
+  skillOptions.plugins.tooltip.filter = (item) => item.datasetIndex === 0;
   skillOptions.plugins.tooltip.callbacks = {
     title: (items) => items[0].raw.x === 0 ? "Game 0: blank AI, no training yet"
                                            : `After ${items[0].raw.x.toLocaleString("en-US")} games of training`,
-    label: (item) => `${item.raw.y.toFixed(2)}  ${item.datasetIndex === 0 ? "best guesses" : "playing like in practice"}`,
+    label: (item) => `${item.raw.y.toFixed(2)} average guesses`,
   };
   skillChart = new Chart($("skill-chart"), {
     data: {
       datasets: [
-        { type: "line", label: "Best guesses", data: skillPoints, borderWidth: 2, pointRadius: 4,
+        { type: "line", label: "Skill check", data: skillPoints, borderWidth: 2, pointRadius: 4,
           pointHoverRadius: 6, pointBorderWidth: 2, tension: 0, borderJoinStyle: "round", order: 1 },
-        { type: "line", label: "Playing like in practice", data: practicePoints, borderWidth: 2, pointRadius: 4,
-          pointHoverRadius: 6, pointBorderWidth: 2, tension: 0, borderJoinStyle: "round", order: 2 },
         { type: "line", label: "Blank AI level", data: [], borderWidth: 1, pointRadius: 0, pointHoverRadius: 0,
-          order: 3 },
+          order: 2 },
       ],
     },
     options: skillOptions,
@@ -138,11 +141,9 @@ function applyTheme() {
                          titleColor: css("--text-secondary"), bodyColor: css("--text-primary") });
   }
   if (skillChart) {
-    const [best, practice, ref] = skillChart.data.datasets;
-    for (const [line, color] of [[best, css("--series")], [practice, css("--series-2")]]) {
-      Object.assign(line, { borderColor: color, pointBackgroundColor: color,
-                            pointBorderColor: css("--surface"), pointHoverBackgroundColor: color });
-    }
+    const [line, ref] = skillChart.data.datasets;
+    Object.assign(line, { borderColor: css("--series"), pointBackgroundColor: css("--series"),
+                          pointBorderColor: css("--surface"), pointHoverBackgroundColor: css("--series") });
     ref.borderColor = css("--reference");
     skillChart.update("none");
   }
@@ -160,7 +161,6 @@ function clearRun() {
   games.length = 0;
   averages.length = 0;
   skillPoints.length = 0;
-  practicePoints.length = 0;
   windowSum = 0;
   analysisKey = null;
   $("table-body").replaceChildren();
@@ -180,7 +180,30 @@ function addGame([n, secret, guesses]) {
   $("table-body").prepend(row);
 }
 
-function renderWeights(weights) {
+function renderKnowledge(knowledge) {
+  if (knowledge.kind === "value") {
+    $("knowledge-subtitle").textContent = "How many more guesses it expects to need, depending on how many words are " +
+      "still possible. It learns this curve from its own games (3 numbers). A blank AI thinks it's 0 everywhere.";
+    const top = Math.max(1, ...knowledge.items.map(([, v]) => v));
+    const rows = knowledge.items.map(([m, v]) => {
+      const row = el("div", "bar-row");
+      row.appendChild(el("span", "", `${m.toLocaleString("en-US")} word${m === 1 ? "" : "s"} left`));
+      const track = el("div", "track");
+      const fill = el("div", "fill");
+      fill.style.width = `${(100 * Math.max(v, 0)) / top}%`;
+      track.appendChild(fill);
+      row.appendChild(track);
+      row.appendChild(el("span", "num", `${v.toFixed(2)} more`));
+      return row;
+    });
+    const box = el("div", "bars");
+    box.replaceChildren(...rows);
+    $("weights").replaceChildren(box);
+    return;
+  }
+  $("knowledge-subtitle").textContent = 'Its whole "brain" is these numbers. All zero means a blank AI that picks at ' +
+    "random. Positive means it wants more of that; negative means it wants less.";
+  const weights = Object.fromEntries(knowledge.items);
   const values = Object.values(weights);
   const scale = Math.max(1, ...values.map(Math.abs));
   const rows = Object.entries(weights).map(([name, value]) => {
@@ -220,18 +243,14 @@ function render(state) {
   if (state.since === games.length) state.results.forEach(addGame); // skip replies that don't line up
 
   skillPoints.length = 0;
-  practicePoints.length = 0;
-  for (const [n, best, practice] of state.skill_checks) {
-    skillPoints.push({ x: n, y: best });
-    practicePoints.push({ x: n, y: practice });
-  }
+  for (const [n, score] of state.skill_checks) skillPoints.push({ x: n, y: score });
 
   for (const chart of [skillChart, practiceChart]) {
     if (chart) chart.options.scales.x.max = state.target_games;
   }
   if (skillChart) { // faint line at the blank AI's level, so the drop is easy to see
     const start = state.stats.skill_before;
-    skillChart.data.datasets[2].data = start === null ? []
+    skillChart.data.datasets[1].data = start === null ? []
       : [{ x: 0, y: start }, { x: state.target_games, y: start }];
   }
 
@@ -243,6 +262,8 @@ function render(state) {
   $("continue").disabled = state.status !== "paused";
   syncSlider("speed", SPEEDS, state.games_per_second, formatSpeed);
   syncSlider("target", TARGETS, state.target_games, formatTarget);
+  if (document.activeElement !== $("mode")) $("mode").value = state.mode;
+  document.querySelectorAll("[data-mode]").forEach((node) => { node.hidden = node.dataset.mode !== state.mode; });
 
   // Tiles
   const s = state.stats;
@@ -257,14 +278,82 @@ function render(state) {
     $("improvement-sub").textContent = `guesses per game (${((saved / s.skill_before) * 100).toFixed(1)}% fewer)`;
   }
   $("check-words").textContent = state.check_words;
-  $("skill-subtitle").textContent = `Every 5 games at first (then every ${state.check_interval}), training pauses and the AI plays the same ${state.check_words} words. Same words every time, so the luck of which word comes up can't move these lines: only learning can. Game 0 is the blank AI, before any training.`;
+  $("skill-subtitle").textContent = `Every 10 games at first (then every ${state.check_interval}), training pauses and the AI plays the same ${state.check_words} words. Same words every time, so the luck of which word comes up can't move these lines: only learning can. Game 0 is the blank AI, before any training.`;
   $("avg-legend").textContent = `Average of the last ${windowSize} games`;
   $("table-avg-head").textContent = `Avg of last ${windowSize}`;
-  renderWeights(state.weights);
+  renderKnowledge(state.knowledge);
+  const exam = state.final_exam;
+  $("exam").textContent = exam ? exam.avg.toFixed(3) : "–";
+  $("exam-sub").textContent = exam
+    ? `worst game ${exam.worst}; proven best possible is ${OPTIMUM} (+${(((exam.avg - OPTIMUM) / OPTIMUM) * 100).toFixed(1)}%)` +
+      (state.mode === "possible" ? ", but that needs probe words, which this mode can't play" : "")
+    : "when the run finishes";
+  renderLearned(state.learned, state.mode);
+  renderOpeners(state.openers);
   renderAnalysisStatus(state.analysis);
 
   if (skillChart) skillChart.update("none");
   if (practiceChart) practiceChart.update("none");
+}
+
+// ---------------------------------------------------------------- what it learned to do
+
+const pct = (part, whole) => whole ? `${Math.round((100 * part) / whole)}%` : "–";
+const upper = (words) => words.map((w) => w.toUpperCase()).join(", ");
+
+function renderLearned(learned, mode) {
+  $("learned-subtitle").textContent = `From its last ${learned.window.toLocaleString("en-US")} practice games.` +
+    (mode === "possible" ? " In this mode it isn't allowed to probe." : "");
+  const rows = learned.probing.map((b) => {
+    const row = el("div", "bar-row");
+    row.appendChild(el("span", "", b.label));
+    const track = el("div", "track");
+    const fill = el("div", "fill");
+    fill.style.width = b.decisions ? `${(100 * b.probes) / b.decisions}%` : "0%";
+    track.appendChild(fill);
+    row.appendChild(track);
+    row.appendChild(el("span", "num", b.decisions ? `${pct(b.probes, b.decisions)} of ${b.decisions}` : "no guesses yet"));
+    return row;
+  });
+  $("probing").replaceChildren(...rows);
+
+  const p = learned.latest_probe;
+  if (p) {
+    const box = el("div");
+    box.appendChild(document.createTextNode(`Game ${p.game.toLocaleString("en-US")}: ${p.possible.length} words were possible (`));
+    box.appendChild(el("span", "probe-words", upper(p.possible)));
+    box.appendChild(document.createTextNode("). It played "));
+    box.appendChild(el("b", "", p.guess.toUpperCase()));
+    box.appendChild(document.createTextNode(
+      `, which can't be the answer, to test ${p.tested.length ? upper(p.tested) : "letters"} at once. ` +
+      `Afterwards ${p.left_after} word${p.left_after === 1 ? " was" : "s were"} left (the secret was ${p.secret.toUpperCase()}).`));
+    $("latest-probe").replaceChildren(box);
+  } else {
+    $("latest-probe").textContent = mode === "possible" ? "Probes aren't allowed in this mode." : "No probe yet.";
+  }
+
+  $("weak-opener").textContent = learned.weak_openers
+    ? `When its opener still left over ${learned.weak_threshold} words (${learned.weak_openers} games), its next guess ` +
+      `used only brand-new letters ${pct(learned.weak_fresh, learned.weak_openers)} of the time.`
+    : "No weak openers yet.";
+}
+
+function renderOpeners(openers) {
+  $("openers-subtitle").textContent =
+    `${openers.tried.toLocaleString("en-US")} different openers so far. Its favorite right now: ${openers.favorite.toUpperCase()}.`;
+  const rows = openers.table.map((o) => {
+    const row = el("tr");
+    row.appendChild(el("td", "", o.word.toUpperCase()));
+    row.appendChild(el("td", "", o.games.toLocaleString("en-US")));
+    row.appendChild(el("td", "", o.avg.toFixed(2) + (o.ci === null ? "" : ` \u00b1 ${o.ci.toFixed(2)}`)));
+    return row;
+  });
+  $("openers-body").replaceChildren(...rows);
+  $("openers-note").textContent = openers.games_to_compare
+    ? "Single games vary a lot, so telling apart two openers that are 0.05 guesses apart would take about " +
+      `${openers.games_to_compare.toLocaleString("en-US")} games with each. That's why the benchmark scores openers ` +
+      "exactly, on all 2,315 words, instead of by trial and error."
+    : "";
 }
 
 // ---------------------------------------------------------------- word difficulty
@@ -364,6 +453,7 @@ async function lookup(word) {
     row.appendChild(tiles);
     row.appendChild(el("span", "", i === n - 1 ? "solved"
       : `${step.words_left.toLocaleString("en-US")} word${step.words_left === 1 ? "" : "s"} still possible`));
+    if (step.probe) row.appendChild(el("span", "badge", "probe: couldn't be the answer"));
     return row;
   });
   box.replaceChildren(head, ...rows);
@@ -406,6 +496,7 @@ $("pause").addEventListener("click", () => post("/api/pause"));
 $("continue").addEventListener("click", () => post("/api/continue"));
 $("reset").addEventListener("click", () => post("/api/reset"));
 $("analyze").addEventListener("click", () => post("/api/analyze"));
+$("mode").addEventListener("change", () => post("/api/mode", { mode: $("mode").value }));
 $("lookup").addEventListener("submit", (event) => {
   event.preventDefault();
   const word = $("lookup-word").value.trim();

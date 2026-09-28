@@ -4,3 +4,8 @@ __pycache__/
 venv/
 .env
 .pytest_cache/
+
+# built on first use (~10 s) by wordle/patterns.py
+data/patterns.npz
+# run logs
+*.log

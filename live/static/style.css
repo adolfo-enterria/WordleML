@@ -91,6 +91,8 @@ button:hover:not(:disabled) { border-color: var(--text-muted); }
 button:disabled { opacity: 0.4; cursor: default; }
 .slider { display: flex; align-items: center; gap: 8px; margin-left: 12px; font-size: 14px; color: var(--text-secondary); }
 .slider output { min-width: 84px; color: var(--text-primary); }
+select { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); }
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .tile, .card {
@@ -113,6 +115,7 @@ h2 { font-size: 16px; font-weight: 600; margin: 0; }
 .key.line-dot.second, .key.line-dot.second::after { background: var(--series-2); }
 .key.line { width: 16px; height: 2px; background: var(--series); border-radius: 1px; }
 .key.ref { width: 16px; height: 1px; background: var(--reference); }
+.key.best { width: 16px; height: 0; border-top: 1px dashed var(--text-secondary); }
 .chart-box { position: relative; height: 380px; }
 .chart-box.small { height: 240px; }
 .error { color: var(--text-secondary); font-size: 13px; }
@@ -178,3 +181,11 @@ table.hardest a { color: var(--text-primary); text-decoration: underline; text-d
   .weight { grid-template-columns: 120px 1fr 48px; }
   .dotrow, .scale { grid-template-columns: 110px 1fr 40px; }
 }
+
+.bars { display: grid; gap: 6px; margin: 6px 0 4px; }
+.bar-row { display: grid; grid-template-columns: 130px 1fr 110px; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); }
+.bar-row .track { position: relative; height: 10px; background: var(--grid); border-radius: 0 4px 4px 0; }
+.bar-row .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--series); border-radius: 0 4px 4px 0; }
+.bar-row .num { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); }
+.probe-words { color: var(--text-primary); }

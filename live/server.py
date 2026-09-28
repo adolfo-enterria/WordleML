@@ -8,6 +8,7 @@
     POST /api/pause | /api/continue | /api/reset | /api/analyze
     POST /api/speed            body: {"games_per_second": 10}   (0 = as fast as possible)
     POST /api/target           body: {"games": 1000}
+    POST /api/mode             body: {"mode": "any"} or {"mode": "possible"}   (starts a fresh run)
 """
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -50,6 +51,11 @@ def make_server(session, port=8765, host="127.0.0.1"):
             path = urlparse(self.path).path
             if path in actions:
                 actions[path]()
+            elif path == "/api/mode":
+                try:
+                    session.set_mode(self._read_json()["mode"])
+                except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                    return self._send_json({"error": 'expected {"mode": "any" or "possible"}'}, 400)
             elif path in settings:
                 key, setter = settings[path]
                 try:

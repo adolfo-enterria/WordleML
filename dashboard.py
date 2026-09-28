@@ -24,12 +24,14 @@ def main():
     parser.add_argument("--speed", type=float, default=10, help="games per second (0 = max)")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--seed", type=int, default=None, help="fix the randomness to repeat a run")
+    parser.add_argument("--mode", choices=["any", "possible"], default="any",
+                        help="any: may guess any valid word (can probe); possible: only words that could win")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="where to save the trained AI")
     parser.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     args = parser.parse_args()
 
     session = TrainingSession(load_words(), target_games=args.games, games_per_second=args.speed,
-                              seed=args.seed, model_path=args.model)
+                              seed=args.seed, model_path=args.model, mode=args.mode)
     try:
         server = make_server(session, port=args.port)
     except OSError:

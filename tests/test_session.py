@@ -13,9 +13,14 @@ from wordle.words import load_words
 WORDS = load_words()
 
 
-@pytest.fixture
-def session(tmp_path):
-    return TrainingSession(WORDS, target_games=20, seed=0, model_path=tmp_path / "agent.npz")
+@pytest.fixture(params=["any", "possible"])
+def session(request, tmp_path):
+    return TrainingSession(WORDS, target_games=20, seed=0, model_path=tmp_path / "agent.npz",
+                           mode=request.param, exam_words=WORDS[:50])
+
+
+def learned_numbers(state):
+    return [value for _, value in state["knowledge"]["items"]]
 
 
 def run_until_idle(session):
@@ -28,8 +33,9 @@ def test_skill_checks_at_start_every_interval_and_end(session):
     state = session.snapshot()
     assert state["status"] == "finished"
     assert state["games_played"] == 20
-    assert [check[0] for check in state["skill_checks"]] == [0, 5, 10, 15, 20]  # every 5 early on
-    assert all(1 <= best <= 10 and 1 <= practice <= 10 for _, best, practice in state["skill_checks"])
+    assert [check[0] for check in state["skill_checks"]] == [0, 10, 20]  # every 10 early on
+    assert all(1 <= score <= 12 for _, score in state["skill_checks"])
+    assert state["final_exam"]["games_trained"] == 20 and 1 <= state["final_exam"]["avg"] <= 12
     assert session.model_path.exists()
 
 
@@ -51,7 +57,7 @@ def test_reset_starts_over_untrained(session):
     state = session.snapshot()
     assert state["games_played"] == 0 and state["skill_checks"] == []
     assert state["run_id"] == old_run + 1
-    assert all(w == 0 for w in state["weights"].values())
+    assert all(v == 0 for v in learned_numbers(state))  # a blank AI
 
 
 def test_pause_continue(session):
@@ -71,7 +77,7 @@ def test_changing_the_target(session):
     state = session.snapshot()
     assert state["games_played"] == 40 and state["status"] == "finished"
     assert state["skill_checks"][-1][0] == 40
-    assert session.agent.weights.any()  # skill checks don't stop the real agent learning
+    assert any(learned_numbers(state))  # skill checks don't stop the real agent learning
 
 
 def test_snapshot_only_sends_new_games(session):
@@ -85,6 +91,16 @@ def test_word_traits():
     traits = word_traits(WORDS)
     assert set(traits["catch"]["look_alikes"]) >= {"batch", "hatch", "latch", "match", "patch", "watch"}
     assert traits["daddy"]["repeated_letters"] and not traits["crane"]["repeated_letters"]
+
+
+def test_mode_switch_starts_fresh(session):
+    for _ in range(4):
+        session.step()
+    other = "possible" if session.mode == "any" else "any"
+    session.set_mode(other)
+    state = session.snapshot()
+    assert state["mode"] == other and state["games_played"] == 0
+    assert all(v == 0 for v in learned_numbers(state))
 
 
 def test_word_report(session):
