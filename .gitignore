@@ -10,3 +10,5 @@ data/patterns.npz
 # run logs
 *.log
 data/patterns_*.npz
+# limits-study checkpoints (only for resuming a run; the phase JSON next to them has everything)
+reports/*/parts/

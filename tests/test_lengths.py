@@ -100,3 +100,31 @@ def test_simple_plurals():
     assert is_simple_plural("cities", dictionary)
     assert not is_simple_plural("glass", dictionary)  # -ss isn't a plural
     assert not is_simple_plural("news", dictionary)   # "new" isn't in this dictionary
+
+
+def test_smaller_game_keeps_the_rules():
+    full = SplitFeaturizer("common6")
+    keep = list(full.pool[:full.n_answers:7])
+    small = SplitFeaturizer("common6", answers=keep)
+    assert list(small.pool[:small.n_answers]) == keep and sorted(small.pool) == sorted(full.pool)
+    assert small.word_set.answers == tuple(keep) and small.word_set.length == 6
+    rng = np.random.default_rng(3)
+    for g, a in zip(rng.integers(len(small.pool), size=300), rng.integers(small.n_answers, size=300)):
+        expected = sum(c * 3 ** i for i, c in enumerate(score_guess(small.pool[g], small.pool[a])))
+        assert small.by_answer[a, g] == expected
+    agent = PlanningAgent(seed=0, featurizer=small)
+    agent.coef = np.array([1.0, 0.45, -0.02])
+    for secret in keep[:5]:
+        assert play_game(agent, secret).won
+
+
+def test_a_model_plays_another_length(tmp_path):
+    """A saved planner knows numbers, not words: by default it plays its own list, on request any other."""
+    from agents import load_learner
+    agent = PlanningAgent(seed=0, word_set="common4")
+    agent.coef = np.array([1.0, 0.5, -0.02])
+    agent.save(tmp_path / "planner.npz")
+    assert load_learner(tmp_path / "planner.npz").featurizer.length == 4
+    other = load_learner(tmp_path / "planner.npz", word_set="common7")
+    assert other.featurizer.length == 7 and np.allclose(other.coef, agent.coef)
+    assert play_game(other, load_word_set("common7").answers[0]).won

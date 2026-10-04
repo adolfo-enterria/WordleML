@@ -1,0 +1,10 @@
+word_set,answers,guesses,planner_mean,best_total,best_mean,lower_total,lower_mean,proven,opener,worst
+common3,669,1346,4.9890,3260,4.8729,2879,4.3034,False,tae,8
+common4,1759,4545,4.1092,7130,4.0534,6602,3.7533,False,tale,7
+common5,2315,13314,3.4471,7952,3.4350,7044,3.0428,False,trace,6
+common6,3087,16712,3.1283,9634,3.1208,8966,2.9044,False,carnet,6
+common7,3152,25276,2.8808,9062,2.8750,8902,2.8242,False,cantier,5
+common8,2768,31425,2.6291,7277,2.6290,7277,2.6290,True,ceratins,4
+common9,2207,29644,2.3987,5294,2.3987,5294,2.3987,True,cartelise,4
+common10,1456,25627,2.2596,3290,2.2596,3290,2.2596,True,centralise,3
+wordle5,2315,12972,3.4371,7920,3.4212,7078,3.0575,False,salet,5

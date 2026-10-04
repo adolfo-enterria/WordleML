@@ -25,7 +25,7 @@ import numpy as np
 
 from agents.features import tie_ranks
 from wordle.patterns import encode_pattern, n_patterns, pattern_table
-from wordle.words import DEFAULT_WORD_SET, load_word_set
+from wordle.words import DEFAULT_WORD_SET, WordSet, load_word_set
 
 SPLIT_FEATURE_NAMES = ["win_chance", "avg_left", "worst_left", "patterns"]
 CACHE_MIN_WORDS = 20   # remember the facts for big candidate sets (they recur after a fixed opener)
@@ -37,11 +37,24 @@ class SplitFeaturizer:
     names = SPLIT_FEATURE_NAMES
     standardized = False
 
-    def __init__(self, word_set=DEFAULT_WORD_SET):
+    def __init__(self, word_set=DEFAULT_WORD_SET, answers=None):
+        """answers: a smaller game where only these words can be the secret (every word of the set may
+        still be guessed). Its word set is named like "common7-669" and isn't saved anywhere."""
         self.word_set = load_word_set(word_set)
         self.length = self.word_set.length
         self.n_patterns = n_patterns(self.length)
-        self.pool, answers, table = pattern_table(word_set)
+        self.pool, all_answers, table = pattern_table(word_set)
+        if answers is None:
+            answers = all_answers
+        else:
+            answers = list(answers)
+            column = {w: i for i, w in enumerate(all_answers)}
+            row = {w: i for i, w in enumerate(self.pool)}
+            kept = set(answers)
+            self.pool = answers + [w for w in self.pool if w not in kept]
+            table = table[np.ix_([row[w] for w in self.pool], [column[w] for w in answers])]
+            self.word_set = WordSet(f"{self.word_set.name}-{len(answers)}", self.length, tuple(answers),
+                                    tuple(self.pool))
         self.by_answer = np.ascontiguousarray(table.T)  # answers x guesses: fast row lookups
         self.index = {w: i for i, w in enumerate(self.pool)}
         self.n_answers = len(answers)

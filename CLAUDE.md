@@ -13,9 +13,12 @@ python dashboard.py --mode possible --games 2000 --speed 0 --seed 3
 python dashboard.py --length 7       # 7-letter common words (the page's slider does the same)
 python benchmark.py [--quick]        # reproducible report in reports/<date-time>/ (full ~10 min)
 python benchmark.py --length-study   # word lengths 3-10 compared (with search: longer)
+python benchmark.py --limits-study [--phases train,transfer,floor,thinking,fixed,timing,structure]   # floors, learning speed, transfer (hours)
+python -m analysis.limits_report reports/<folder>   # rebuild a limits-study report from its JSON files
 python play.py [--length 6]          # play Wordle yourself (6 guesses, real rules)
 python play.py --watch [--secret nymph] [--lookahead | --search]   # watch the trained AI
 python evaluate.py [--agent consistent] [--lookahead] [--search [WIDTH]] [--length 6]
+python evaluate.py --length 7 --model models/agent_common4.npz   # any saved model on any length
 python -m wordle.wordlists           # rebuild the common-word lists (data/lists/)
 python -m pytest                     # all tests (~3 min)
 ```
@@ -40,6 +43,7 @@ python -m pytest                     # all tests (~3 min)
   - `planning_agent.py`: mode **"any"**, the main AI. It learns V(m) (expected further guesses with m words possible, 3 numbers) and plays the guess with the lowest expected cost.
   - `learning_agent.py`: a REINFORCE policy. Mode **"possible"** uses 3 standardized word facts from `features.py`. Mode "any" uses the split facts from `split_features.py`, but only the benchmark uses it, as a baseline.
   - `split_features.py`: how every valid guess splits the still-possible answers (group sizes → facts), plus `candidates()`.
+    - `SplitFeaturizer(set, answers=[...])` is a smaller game: only those answers can be the secret, every word may still be guessed.
   - `features.py`: the rules as a mask for "possible" mode.
   - `consistent_agent.py`: a random possible word (no strategy).
   - `lookahead.py`: rollout at test time.
@@ -52,6 +56,11 @@ python -m pytest                     # all tests (~3 min)
   - `stats.py`: CIs, paired bootstrap, power analysis, OLS.
   - `benchmark_tasks.py`: worker-process tasks. `use_words(set)` lets one pool serve several word sets.
   - `length_study.py`: `benchmark.py --length-study`, comparing lengths 3–10.
+  - `limits.py`: proven lower bounds over **every** valid guess, and proofs of the optimum (`ExactSearch.prove`).
+    - Bounds, cheapest first: even split with k groups (k = the most groups any guess makes on the set; it never grows on a subset), a possible answer that splits everything (exact), one level over all guesses in numpy, then branch and bound.
+    - The root works on the opener with the weakest proven bound, so a time limit still leaves a valid bound.
+    - Proves the optimum for common8–10 in seconds. 3–7 letters don't finish (deep trees at short lengths, thousands of openers at 5–7): report the bracket.
+  - `limits_study.py` / `limits_report.py`: `benchmark.py --limits-study`. Phases cache JSON in the report folder; the report is rebuilt from whatever is there.
   - `figures.py`: report charts.
 - `live/`:
   - `session.py`: the training thread.
@@ -60,6 +69,7 @@ python -m pytest                     # all tests (~3 min)
     - `snapshot()` is the dashboard's data.
   - `server.py`: JSON API.
   - `static/`: the page.
+- `paper/word_length.md`: the limits study written up as a paper; its figures link to `reports/2026-10-03_limits/`. Every number in it comes from that folder's JSON.
 - `models/agent.npz` (`wordle5`) and `models/agent_{set}.npz`: saved by the dashboard when a run finishes. They can be planner or policy, and `load_learner` picks the right one; the word set is stored in the file.
 
 ## How the agents work (and why)

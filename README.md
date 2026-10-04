@@ -11,6 +11,7 @@ python dashboard.py                    # watch the AI train live in your browser
 python dashboard.py --length 7         # ...on 7-letter words (the page has a slider for this)
 python benchmark.py                    # reproducible report in reports/<date-time>/ (~10 min)
 python benchmark.py --length-study     # how word length (3-10 letters) changes the game
+python benchmark.py --limits-study     # floors, learning speed and transfer across lengths (hours)
 python play.py [--length 6]            # play Wordle yourself
 python play.py --watch [--lookahead | --search]   # watch the trained AI play, with its top choices
 python evaluate.py [--lookahead | --search]       # score the trained AI on every answer word
@@ -139,13 +140,53 @@ position):
 - **No published optimum for these lists:** the search totals are the best results known for them (upper bounds). Only the official list has a proven optimum.
 - **The official list is not the same game:** the common 5-letter list has the same number of answers (2,315) but different words and a different guess list; search scores 3.435 on it and 3.4212 (perfect play) on the official list. Compare lengths using the common lists only.
 
+## Floors, learning speed, and a length the AI never saw
+
+`python benchmark.py --limits-study` asks three questions about word length, with real experiments: what is
+the fewest guesses any strategy can average, how many practice games the planner needs to get there, and
+what happens when a planner trained on one length plays another. Every phase saves its results as it
+goes, so an interrupted run picks up where it stopped. Full results, charts and method in
+[`reports/2026-10-03_limits/report.md`](reports/2026-10-03_limits/report.md).
+The same study written up as a paper: [`paper/word_length.md`](paper/word_length.md).
+
+| Letters | Planner alone (8 seeds) | Best plan found | Proven lower bound | Optimum |
+|---|---|---|---|---|
+| 3 | 4.989 | 4.873 (3,260) | 4.303 | between the two |
+| 4 | 4.109 | 4.053 (7,130) | 3.753 | between the two |
+| 5 | 3.447 | 3.435 (7,952) | 3.043 | between the two |
+| 6 | 3.128 | 3.121 (9,634) | 2.904 | between the two |
+| 7 | 2.881 | 2.875 (9,062) | 2.824 | between the two |
+| 8 | 2.629 | 2.629 (7,277) | 2.629 | **proven** |
+| 9 | 2.399 | 2.399 (5,294) | 2.399 | **proven** |
+| 10 | 2.260 | 2.260 (3,290) | 2.260 | **proven** |
+
+![floor](reports/2026-10-03_limits/floor.png)
+
+- **The floor falls steeply with length:** 4.87 guesses at 3 letters, 2.26 at 10. The optimum is proven at 8-10
+  letters (`analysis/limits.py` looks at every valid guess at every position). At 3-7 letters the lower bounds
+  are loose, but the best plans are very likely at the floor: two search widths and three differently trained
+  planners agree to within one guess in total, and on the official list the same search gives exactly the
+  published optimum. With the same 669 answers at every length the trend holds (4.87, 3.58, 3.03, 2.74, 2.49,
+  2.33, 2.20, 2.14), proven optimal from 6 letters on: it's the letters, not the list size.
+- **The planner learns in a few games, at every length:** within 1% of its long-run level after 1-3 practice
+  games, perfect play at 8-10 letters after 1-3 games. It only learns 3 numbers. At 3-7 letters it levels
+  off 0.2-2.2% above the best plan, and more games don't help; search on top closes that gap (to within a
+  guess or two in total) after a few games of training. Longer words cost more per game (3 ms at 3 letters, ~110-130 ms at 8-10), not more games.
+- **A 4-letter planner plays 7-letter words as well as a 7-letter one:** 2.8804 vs 2.8808, the same opener,
+  identical guesses in 98% of games. It learned a curve V(m), not words, and short words show it the whole
+  range of m. The reverse fails: planners trained on 8-10 letters are 7-8% worse on 3-letter words, because
+  after one long-word guess only a handful of words are ever left, so their V never learns about big groups.
+  Try it: `python evaluate.py --length 7 --model models/agent_common4.npz` (after training a 4-letter model
+  with `python dashboard.py --length 4`).
+
 ## Layout
 
 ```
 wordle/     game rules + scoring, word sets and list builder, the precomputed pattern tables, terminal colors
 agents/     planner (planning_agent.py), look-ahead (lookahead.py), search (search.py),
             policy-gradient learner (learning_agent.py), facts, baselines
-analysis/   word difficulty, hand-made strategies, statistics, benchmark tasks, length study, report charts
+analysis/   word difficulty, hand-made strategies, statistics, benchmark tasks, length study, proven
+            bounds over every guess (limits.py), limits study + report, report charts
 live/       dashboard: training session, web server, page
 dashboard.py, benchmark.py, play.py, evaluate.py
 data/       answers.txt + allowed_guesses.txt (official Wordle lists), lists/ (common-word lists, 3-10

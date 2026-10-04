@@ -166,9 +166,10 @@ class PlanningAgent(Agent):
                  word_set=self.word_set)
 
     @classmethod
-    def load(cls, path, words=None, seed=None, featurizer=None):
+    def load(cls, path, words=None, seed=None, featurizer=None, word_set=None):
+        """word_set: play this list instead of the one it was trained on (V(m) knows no words)."""
         data = np.load(path)
-        word_set = str(data["word_set"]) if "word_set" in data else DEFAULT_WORD_SET
+        word_set = word_set or (str(data["word_set"]) if "word_set" in data else DEFAULT_WORD_SET)
         agent = cls(seed=seed, featurizer=featurizer, word_set=word_set)
         agent.coef, agent.xtx, agent.xty = data["coef"], data["xtx"], data["xty"]
         return agent

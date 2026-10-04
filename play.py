@@ -93,7 +93,7 @@ def main():
     path = args.model or model_path(name)
     if args.agent == "learning" and not Path(path).exists():
         sys.exit(f"No trained model at {path}. Train one with the dashboard (python dashboard.py --length {args.length}).")
-    agent = make_agent(args.agent, words, path)
+    agent = make_agent(args.agent, words, path, word_set=name)
     if (args.lookahead or args.search) and getattr(agent, "name", "") != "planner":
         sys.exit('--lookahead and --search need a planner model (trained in "Any valid word" mode).')
     if args.search:

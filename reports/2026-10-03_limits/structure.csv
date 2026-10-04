@@ -1,0 +1,10 @@
+word_set,answers,guesses,patterns,most_groups,best_opener,best_groups,best_mean_left,best_largest,planner_opener,planner_groups,planner_mean_left,planner_largest,bits_per_guess,bits_per_guess_equal_size
+common3,669,1346,27,21,tae,22,139.34,256,tae,22,139.34,256,1.926,1.926
+common4,1759,4545,81,60,tale,57,133.61,352,tare,60,146.17,389,2.660,2.622
+common5,2315,13314,243,148,trace,149,76.82,242,trace,149,76.82,242,3.254,3.100
+common6,3087,16712,729,359,carnet,359,36.60,136,carnet,359,36.60,136,3.714,3.429
+common7,3152,25276,2187,704,cantier,684,16.12,115,saltier,669,13.08,79,4.042,3.763
+common8,2768,31425,6561,1082,ceratins,1082,6.31,35,ceratins,1082,6.31,35,4.349,4.020
+common9,2207,29644,19683,1331,cartelise,1331,2.80,14,cartelise,1331,2.80,14,4.631,4.275
+common10,1456,25627,59049,1080,centralise,1080,1.91,12,centralise,1080,1.91,12,4.650,4.388
+wordle5,2315,12972,243,149,salet,148,71.27,221,reast,147,71.77,227,3.267,
