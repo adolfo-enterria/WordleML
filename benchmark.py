@@ -3,6 +3,7 @@
     python benchmark.py              # full run (about 20-30 minutes)
     python benchmark.py --quick      # smoke test (a few minutes)
     python benchmark.py --length-study   # how word length (3-10 letters) changes the game
+    python benchmark.py --limits-study   # floors, learning speed and transfer across lengths (hours)
 
 Protocol: every one of the 2,315 possible answers is played exactly once, with
 each strategy's best guesses and fixed tie-breaks, so a score has no luck in
@@ -107,7 +108,14 @@ def main():
     parser.add_argument("--out", help="output folder (default reports/<date-time>)")
     parser.add_argument("--length-study", action="store_true",
                         help="compare word lengths 3-10 instead (see analysis/length_study.py)")
+    parser.add_argument("--limits-study", action="store_true",
+                        help="floors, learning speed and transfer across lengths (see analysis/limits_study.py)")
+    parser.add_argument("--phases", help="limits study: comma-separated phases to run (default: all)")
     args = parser.parse_args()
+    if args.limits_study:
+        from analysis.limits_study import run
+        run(args.workers, quick=args.quick, out=args.out, phases=args.phases and args.phases.split(","))
+        return
     if args.length_study:
         from analysis.length_study import run
         run(args.workers, quick=args.quick, out=args.out)

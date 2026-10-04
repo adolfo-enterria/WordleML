@@ -61,25 +61,28 @@ def make_learner(mode, words=None, seed=None, featurizer=None, word_set=DEFAULT_
     raise ValueError(f"mode must be one of {MODES}")
 
 
-def load_learner(path, words=None, seed=None):
-    """Load a saved learning agent of whichever kind it is (its word set is stored in the file)."""
+def load_learner(path, words=None, seed=None, word_set=None):
+    """Load a saved learning agent of whichever kind it is. It plays the word set stored in the file, or
+    `word_set` if given: it learned a few numbers about situations, never words, so a model trained on
+    one word length can play any other."""
     import numpy as np
     data = np.load(path)
     kind = str(data["kind"]) if "kind" in data else "policy"
     if kind == "planner":
         from agents.planning_agent import PlanningAgent
-        return PlanningAgent.load(path, seed=seed)
+        return PlanningAgent.load(path, seed=seed, word_set=word_set)
     from agents.learning_agent import LearningAgent
-    return LearningAgent.load(path, words, seed=seed)
+    return LearningAgent.load(path, words, seed=seed, word_set=word_set)
 
 
-def make_agent(name, words, model_path=DEFAULT_MODEL, seed=None):
-    """Build an agent by name. "learning" loads the trained model from model_path."""
+def make_agent(name, words, model_path=DEFAULT_MODEL, seed=None, word_set=None):
+    """Build an agent by name. "learning" loads the trained model from model_path (to play `word_set`,
+    if given, whatever list it was trained on)."""
     if name == "consistent":
         from agents.consistent_agent import ConsistentAgent
         return ConsistentAgent(words, seed=seed)
     if name == "learning":
-        agent = load_learner(model_path, words, seed=seed)
+        agent = load_learner(model_path, words, seed=seed, word_set=word_set)
         agent.training = False
         return agent
     raise ValueError(f"Unknown agent '{name}', choose from {AGENT_NAMES}")

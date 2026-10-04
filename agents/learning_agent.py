@@ -131,10 +131,11 @@ class LearningAgent(Agent):
                  word_set=self.word_set)
 
     @classmethod
-    def load(cls, path, words=None, seed=None, featurizer=None):
+    def load(cls, path, words=None, seed=None, featurizer=None, word_set=None):
+        """word_set: play this list instead of the one it was trained on (the facts are about situations)."""
         data = np.load(path)
         mode = str(data["mode"]) if "mode" in data else "possible"
-        word_set = str(data["word_set"]) if "word_set" in data else DEFAULT_WORD_SET
+        word_set = word_set or (str(data["word_set"]) if "word_set" in data else DEFAULT_WORD_SET)
         agent = cls(words, seed=seed, mode=mode, word_set=word_set, featurizer=featurizer)
         if list(data["feature_names"]) != agent.feature_names:
             raise ValueError(f"{path} was trained with different features; retrain it.")

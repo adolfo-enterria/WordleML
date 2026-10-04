@@ -4,6 +4,7 @@
     python evaluate.py --lookahead           # ...thinking further ahead each turn (slower, better)
     python evaluate.py --search              # ...searching every position exactly (minutes; saves the plan)
     python evaluate.py --length 6            # the trained AI for 6-letter common words
+    python evaluate.py --length 7 --model models/agent_common4.npz   # a 4-letter AI on 7-letter words
     python evaluate.py --agent consistent    # no strategy: a random word that's still possible
 """
 import argparse
@@ -34,6 +35,15 @@ def evaluate(agent, secrets):
     }
 
 
+def trained_elsewhere(agent, path, name):
+    """A note when the model was trained on another word list than the one it plays."""
+    if agent != "learning":
+        return ""
+    data = np.load(path)
+    trained = str(data["word_set"]) if "word_set" in data else "wordle5"
+    return "" if trained == name else f" (model trained on {load_word_set(trained).label})"
+
+
 def print_report(name, stats, width=40):
     print(f"Agent: {name}   games: {stats['games']:,} (every answer word once)")
     print(f"Average guesses: {stats['avg_guesses']:.3f}   worst game: {stats['worst']} guesses\n")
@@ -59,8 +69,9 @@ def main():
 
     name = word_set_name(args.length, not args.common)
     words = list(load_word_set(name).answers)
-    agent = make_agent(args.agent, words, args.model or model_path(name), seed=args.seed)
-    label = f"{args.agent} on {load_word_set(name).label}"
+    path = args.model or model_path(name)
+    agent = make_agent(args.agent, words, path, seed=args.seed, word_set=name)
+    label = f"{args.agent} on {load_word_set(name).label}" + trained_elsewhere(args.agent, path, name)
     started = time.perf_counter()
     if (args.lookahead or args.search) and getattr(agent, "name", "") != "planner":
         raise SystemExit("--lookahead and --search need a planner model (trained in \"Any valid word\" mode).")
